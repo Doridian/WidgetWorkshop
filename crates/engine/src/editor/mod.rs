@@ -10,6 +10,7 @@
 
 pub mod about;
 pub mod dialog;
+mod download;
 mod file;
 pub mod file_dialog;
 pub mod help;
@@ -23,6 +24,8 @@ pub mod toolbar;
 pub mod tray;
 pub mod ui;
 pub mod worksheet;
+
+pub use download::{Download, Dropped};
 
 use formats::cursor::Cursor as CursorPic;
 use formats::pe::{RT_CURSOR, RT_GROUP_CURSOR};
@@ -203,6 +206,8 @@ enum Then {
     ImportWav(usize),
     /// "Can't find help file": Retry looks again.
     HelpMissing,
+    /// The widget to download.
+    DownloadPath,
 }
 
 /// What comes after the "Save changes?" question.
@@ -213,6 +218,8 @@ enum Next {
     LoadPuzzle,
     Import,
     Exit,
+    /// The file dropped onto the window.
+    Dropped,
 }
 
 /// The editor, drawn into an 8-bit surface.
@@ -288,6 +295,14 @@ pub struct Editor {
     from_exe: bool,
     /// What follows dialog 10014 or 10010: a save.
     fit_then: Option<Step>,
+    /// Hands a file to the player as a download (the browser's), and
+    /// with it the File menu's download items ([`Editor::set_download`]).
+    download: Option<download::Download>,
+    /// A file dropped onto the window, waiting for "Save changes?".
+    dropped: Option<download::Dropped>,
+    /// The name of the dropped widget that has no path (the browser's):
+    /// the title's, Save As' and Save to Download's.
+    drop_name: Option<String>,
 }
 
 impl Editor {
@@ -356,6 +371,9 @@ impl Editor {
             file_dir: None,
             from_exe: false,
             fit_then: None,
+            download: None,
+            dropped: None,
+            drop_name: None,
         };
         let limits = e.doc.tray_limits.clone();
         e.tray.apply_limits(&limits);
@@ -745,6 +763,7 @@ impl Editor {
         self.dirty = false;
         self.puzzle.active = false;
         self.from_exe = false;
+        self.drop_name = None;
     }
 
     /// Opens the widget file `path` (the player's, one of the CD's samples
@@ -795,7 +814,9 @@ impl Editor {
         self.path
             .as_deref()
             .and_then(|p| std::path::Path::new(p).file_name())
-            .map_or_else(|| UNTITLED.to_owned(), |n| n.to_string_lossy().into_owned())
+            .map(|n| n.to_string_lossy().into_owned())
+            .or_else(|| self.drop_name.clone())
+            .unwrap_or_else(|| UNTITLED.to_owned())
     }
 
     /// Alert `n` (string `8000 + n`, `0x410b5b`).
@@ -834,6 +855,7 @@ impl Editor {
             Next::LoadPuzzle => self.choose_puzzle(),
             Next::Import => self.import_ask(),
             Next::Exit => self.finished = true,
+            Next::Dropped => self.open_dropped(),
         }
     }
 
@@ -922,6 +944,13 @@ impl Editor {
                     self.open_help();
                 }
             }
+            Then::DownloadPath => {
+                if a == Answer::Ok
+                    && let Some(p) = input.filter(|p| !p.is_empty())
+                {
+                    self.download_path(&p);
+                }
+            }
         }
     }
 
@@ -942,7 +971,15 @@ impl Editor {
         let mut g = Vec::new();
         if self.running {
             g.extend_from_slice(&menu::RUN_DISABLED);
+            g.extend([cmd::SAVE_DOWNLOAD, cmd::DOWNLOAD]);
         } else {
+            if self.download.is_none() {
+                g.extend([cmd::SAVE_DOWNLOAD, cmd::DOWNLOAD]);
+            }
+            // A puzzle is saved as a widget only by Save As.
+            if self.puzzle.active {
+                g.push(cmd::SAVE_DOWNLOAD);
+            }
             if !standalone::SAVE_ENABLED {
                 g.push(cmd::SAVE_INTO);
             }
@@ -1017,6 +1054,8 @@ impl Editor {
             cmd::IMPORT => self.confirm_save(Next::Import),
             cmd::SAVE_INTO if standalone::SAVE_ENABLED => self.save_into(),
             cmd::CONTENTS => self.open_help(),
+            cmd::SAVE_DOWNLOAD => self.save_download(),
+            cmd::DOWNLOAD => self.ask_file(file_dialog::DOWNLOAD_WIDGET, "", Then::DownloadPath),
             // Printing: nothing to print to.
             _ => {}
         }

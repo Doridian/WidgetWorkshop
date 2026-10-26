@@ -252,6 +252,14 @@ impl App for Workshop {
         self.editor.resize(w, h);
         self.editor.draw();
     }
+
+    fn dropped(&mut self, file: platform::DroppedFile) {
+        self.editor.drop_file(editor::Dropped {
+            name: file.name,
+            path: file.path.map(|p| p.display().to_string()),
+            data: file.data,
+        });
+    }
 }
 
 /// The CD to read when none is given: of the `.iso`s here, the first with
@@ -363,6 +371,10 @@ fn start(args: &Args, assets: Assets) -> Result<(), platform::Error> {
         editor.profile = Box::new(p);
     }
     editor.files = Box::new(files::PlatformFiles);
+    // In the browser the dialogs see only its storage: widgets go out as
+    // downloads too.
+    #[cfg(target_arch = "wasm32")]
+    editor.set_download(Box::new(platform::web::download));
     // `0x415018`: the random generator starts at `(u32)time(NULL)`.
     editor.env.rng = chrono::Utc::now().timestamp().rem_euclid(1 << 32).unsigned_abs();
     let audio = if args.no_audio {

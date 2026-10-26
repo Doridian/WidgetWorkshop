@@ -267,7 +267,10 @@ impl Editor {
                 let name = if self.puzzle.active {
                     crate::puzzle::DOC_NAME.to_owned()
                 } else {
-                    self.path.clone().unwrap_or_else(|| UNTITLED.to_owned())
+                    self.path
+                        .clone()
+                        .or_else(|| self.drop_name.clone())
+                        .unwrap_or_else(|| UNTITLED.to_owned())
                 };
                 self.ask_file(SAVE_WIDGET, &name, Then::SaveAsPath(next));
             }

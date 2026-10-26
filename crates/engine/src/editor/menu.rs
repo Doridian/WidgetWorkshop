@@ -45,6 +45,10 @@ pub mod cmd {
     pub const STEEL: u16 = 0x800f;
     pub const CONTENTS: u16 = 0x8010;
     pub const FIT: u16 = 0x8011;
+    /// The port's own, in the browser (`super::super::download`): File ▸
+    /// Save to Download and Download a Widget.
+    pub const SAVE_DOWNLOAD: u16 = 0x9001;
+    pub const DOWNLOAD: u16 = 0x9002;
 }
 
 /// The items `Menu_UpdateForRunState` (`0x414b7e`) greys while running.
@@ -160,6 +164,30 @@ impl Menu {
             }
         }
         m
+    }
+
+    /// Adds the port's download items to the File menu, after Save Into
+    /// a Stand-Alone Widget (or at its end).
+    pub fn add_downloads(&mut self) {
+        let Some(MenuItem::Popup { items, .. }) = self.items.first_mut() else {
+            return;
+        };
+        let at = items
+            .iter()
+            .position(|i| matches!(i, MenuItem::Command { id: cmd::SAVE_INTO, .. }))
+            .map_or(items.len(), |i| i + 1);
+        let item = |id, text: &str| MenuItem::Command {
+            id,
+            text: text.to_owned(),
+            flags: 0,
+        };
+        items.splice(
+            at..at,
+            [
+                item(cmd::SAVE_DOWNLOAD, "Save to Do&wnload"),
+                item(cmd::DOWNLOAD, "&Download a Widget..."),
+            ],
+        );
     }
 
     #[must_use]

@@ -54,6 +54,13 @@ pub const SAVE_WIDGET: Spec = Spec {
     def_ext: "wgt",
     save: true,
 };
+/// File ▸ Download a Widget (the port's, `super::download`).
+pub const DOWNLOAD_WIDGET: Spec = Spec {
+    title: "Download widget",
+    filter: &[("Saved widgets (*.wgt)", "*.wgt")],
+    def_ext: "wgt",
+    save: false,
+};
 /// File ▸ Import a Stand-Alone Widget (`0x416bf5`).
 pub const IMPORT_EXE: Spec = Spec {
     title: "Import from self-running widget",

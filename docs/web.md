@@ -67,6 +67,23 @@ files, mounted at `/storage` (`platform::storage::WEB_STORAGE`): the
 widgets the player saves, `WIDGET.INI` (the solved puzzles) and
 `settings.ini`. The editor's file dialogs start and stay there.
 
+Widgets also come and go as files of the player's (`editor::download`):
+
+- A file dropped onto the page opens like File ▸ Open, after "Save
+  changes?" (`platform::web::watch_drops` reads it). It has no path, so
+  the title shows its name and Save goes to Save As with that name, into
+  the storage. Natively a file dropped onto the window opens the same
+  way, and Save writes back to it.
+- File ▸ **Save to Download** hands the widget to the browser as a
+  download under its name (`WIDGET.WGT` while untitled), as Save would
+  write it; it doesn't count as saved, and the storage is left alone.
+  Greyed for a puzzle, which only Save As makes a widget of.
+- File ▸ **Download a Widget...** picks a widget in the storage, or one
+  of the CD's samples, and downloads it.
+
+These two items are the port's own (commands `0x9001`, `0x9002`), added
+after Save Into a Stand-Alone Widget only in the browser.
+
 ## Options
 
 The page's query string takes the command line's options without their

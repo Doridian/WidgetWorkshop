@@ -14,7 +14,8 @@
 //! reach the game. The window's size, position and fullscreen state are
 //! remembered in the port's settings file ([`settings`]). The mouse
 //! pointer is the system's, in the shape the frame asks for ([`Cursor`]).
-//! [`theme`] tells whether the system is in dark mode.
+//! [`theme`] tells whether the system is in dark mode. A file dropped
+//! onto the window goes to [`App::dropped`].
 
 //!
 //! In the browser (`wasm32`, `docs/web.md`) the window is the page's
@@ -225,6 +226,15 @@ pub enum Input {
     Close,
 }
 
+/// A file dropped onto the window: its name, where it is (natively; the
+/// browser gives only its bytes) and its bytes.
+#[derive(Debug, Clone)]
+pub struct DroppedFile {
+    pub name: String,
+    pub path: Option<PathBuf>,
+    pub data: Vec<u8>,
+}
+
 pub trait App {
     /// Advances the game by `elapsed`.
     fn update(&mut self, elapsed: Duration);
@@ -238,6 +248,8 @@ pub trait App {
     /// [`MIN_DESKTOP`]; the frame may be bigger than it, and is then
     /// letterboxed.
     fn resize(&mut self, width: u32, height: u32);
+    /// A file was dropped onto the window (a port extension).
+    fn dropped(&mut self, _file: DroppedFile) {}
 }
 
 /// How the window opens; what isn't given comes from the settings file.
@@ -502,7 +514,12 @@ impl<A: App> ApplicationHandler for Runner<A> {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         #[cfg(target_arch = "wasm32")]
-        self.take_display(event_loop);
+        {
+            self.take_display(event_loop);
+            for f in web::take_drops() {
+                self.app.dropped(f);
+            }
+        }
         let now = Instant::now();
         if now >= self.last + FRAME {
             self.app.update(now - self.last);
@@ -529,6 +546,7 @@ impl<A: App> Runner<A> {
         if self.pending.is_some() {
             return;
         }
+        web::watch_drops();
         let canvas = web::canvas();
         let append = canvas.is_none();
         let attrs = Window::default_attributes()
@@ -665,6 +683,17 @@ impl<A: App> Runner<A> {
                     self.key(code, event.state == ElementState::Pressed, event.repeat);
                 }
             }
+            WindowEvent::DroppedFile(path) => match std::fs::read(&path) {
+                Ok(data) => self.app.dropped(DroppedFile {
+                    name: path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default(),
+                    path: Some(path),
+                    data,
+                }),
+                Err(e) => eprintln!("{}: {e}", path.display()),
+            },
             WindowEvent::RedrawRequested => {
                 if let Some((w, d)) = &mut self.window {
                     let frame = self.app.frame();

@@ -806,3 +806,63 @@ fn parts_draw_inside_bounds() {
         }
     }
 }
+
+#[test]
+fn dropped_widgets_open_and_widgets_download() {
+    let Some(mut e) = editor() else { return };
+    // Without a downloader, no download items.
+    let file_menu = |e: &Editor| match &e.menu.items[0] {
+        formats::dialog::MenuItem::Popup { items, .. } => items
+            .iter()
+            .filter_map(|i| match i {
+                formats::dialog::MenuItem::Command { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    assert!(!file_menu(&e).contains(&cmd::SAVE_DOWNLOAD));
+    let got = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = std::rc::Rc::clone(&got);
+    e.set_download(Box::new(move |name, data| {
+        sink.borrow_mut().push((name.to_owned(), data.to_vec()));
+        true
+    }));
+    let items = file_menu(&e);
+    let at = items.iter().position(|&i| i == cmd::SAVE_INTO).unwrap();
+    assert_eq!(items[at + 1..at + 3], [cmd::SAVE_DOWNLOAD, cmd::DOWNLOAD]);
+    // Save to Download: the widget, named for an untitled one.
+    add(&mut e, *b"Coin", 300, 300);
+    e.dirty = true;
+    e.command(cmd::SAVE_DOWNLOAD);
+    let (name, bytes) = got.borrow()[0].clone();
+    assert_eq!(name, "WIDGET.WGT");
+    assert!(e.dirty);
+    // Dropped while changed: "Save changes?", No opens it.
+    e.command(cmd::NEW);
+    e.key_down(u16::from(b'N'));
+    assert!(e.doc.gadgets.is_empty());
+    add(&mut e, *b"bulb", 100, 100);
+    e.dirty = true;
+    e.drop_file(Dropped {
+        name: "COIN.WGT".to_owned(),
+        path: None,
+        data: bytes,
+    });
+    assert_eq!(prompt_text(&e).as_deref(), Some("Save changes to untitled.wgt?"));
+    e.key_down(u16::from(b'N'));
+    assert_eq!(e.doc.gadgets.len(), 1);
+    assert!(e.path.is_none() && !e.dirty);
+    e.update(16, (0, 0, 0));
+    assert_eq!(e.title(), "Widget Workshop - COIN.WGT");
+    // Downloaded again under its dropped name.
+    e.command(cmd::SAVE_DOWNLOAD);
+    assert_eq!(got.borrow()[1].0, "COIN.WGT");
+    // Not a widget: alert 7.
+    e.drop_file(Dropped {
+        name: "X.WGT".to_owned(),
+        path: None,
+        data: b"nope".to_vec(),
+    });
+    assert_eq!(prompt_text(&e), e.assets.string(8007));
+}
