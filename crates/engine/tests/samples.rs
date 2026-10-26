@@ -12,7 +12,7 @@ fn samples_round_trip() {
         return;
     }
     let assets = Assets::load(Some(&Dir(root)), None).unwrap();
-    assert!(!assets.samples.is_empty());
+    assert!(assets.samples.iter().any(|(n, _)| n.eq_ignore_ascii_case("CLOCK.WGT")));
     for (name, bytes) in &assets.samples {
         let doc = Document::load(&assets, bytes).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(&doc.save(), bytes, "{name}");
