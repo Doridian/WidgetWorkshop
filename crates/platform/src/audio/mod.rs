@@ -42,10 +42,13 @@ impl Audio {
 
     #[cfg(feature = "audio-device")]
     fn with_device() -> Result<Audio, String> {
-        use cpal::traits::{DeviceTrait, HostTrait};
+        with_devices(true, Audio::on)
+    }
 
-        let host = cpal::default_host();
-        let device = host.default_output_device().ok_or("no audio output device")?;
+    #[cfg(feature = "audio-device")]
+    fn on(device: &cpal::Device) -> Result<Audio, String> {
+        use cpal::traits::DeviceTrait;
+
         let supported = device.default_output_config().map_err(|e| e.to_string())?;
         let engine = Arc::new(Mutex::new(Engine::new(supported.config().sample_rate)));
         // The device's default buffer can be smaller than the sound
@@ -58,7 +61,7 @@ impl Audio {
                 cpal::SupportedBufferSize::Range { min, max } => frames.clamp(*min, *max),
                 cpal::SupportedBufferSize::Unknown => frames,
             };
-            match open_stream(&device, &supported, frames, &engine) {
+            match open_stream(device, &supported, frames, &engine) {
                 Ok(stream) => {
                     let stream = Arc::new(stream);
                     #[cfg(target_arch = "wasm32")]
@@ -95,6 +98,44 @@ impl Audio {
             f(&mut e.lock().unwrap_or_else(PoisonError::into_inner));
         }
     }
+}
+
+/// The sound servers' own ALSA devices, to try when the default won't
+/// open: without the server's ALSA default config, `default` is the
+/// card's dmix, which fails while the server holds the card.
+#[cfg(feature = "audio-device")]
+const SERVER_DEVICES: [&str; 2] = ["pipewire", "pulse"];
+
+/// `open` on the default output (or input) device, and if that fails, on
+/// each of [`SERVER_DEVICES`] there is. The last error if none opens.
+#[cfg(feature = "audio-device")]
+pub(crate) fn with_devices<T>(
+    output: bool,
+    mut open: impl FnMut(&cpal::Device) -> Result<T, String>,
+) -> Result<T, String> {
+    use cpal::traits::{DeviceTrait, HostTrait};
+
+    let host = cpal::default_host();
+    let default = if output { host.default_output_device() } else { host.default_input_device() };
+    let mut last = format!("no audio {} device", if output { "output" } else { "input" });
+    if let Some(device) = &default {
+        match open(device) {
+            Ok(t) => return Ok(t),
+            Err(e) => last = e,
+        }
+    }
+    let devices = if output { host.output_devices() } else { host.input_devices() };
+    let devices: Vec<cpal::Device> = devices.into_iter().flatten().collect();
+    for name in SERVER_DEVICES {
+        let Some(device) = devices.iter().find(|d| d.id().is_ok_and(|id| id.id() == name)) else {
+            continue;
+        };
+        match open(device) {
+            Ok(t) => return Ok(t),
+            Err(e) => last = format!("{last}; {name}: {e}"),
+        }
+    }
+    Err(last)
 }
 
 /// The buffer sizes to try, in frames, smallest first: 2048 is about

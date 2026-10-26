@@ -75,26 +75,30 @@ pub struct Capture {
 }
 
 impl Capture {
-    /// Starts capturing from the default input device at `rate` Hz.
+    /// Starts capturing from the default input device at `rate` Hz (or a
+    /// sound server's, if the default won't open).
     ///
     /// # Errors
     /// No input device, or it won't open.
     #[cfg(feature = "audio-device")]
     pub fn open(rate: u32) -> Result<Capture, String> {
-        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+        super::with_devices(false, |device| Capture::on(device, rate))
+    }
 
-        let host = cpal::default_host();
-        let device = host.default_input_device().ok_or("no audio input device")?;
+    #[cfg(feature = "audio-device")]
+    fn on(device: &cpal::Device, rate: u32) -> Result<Capture, String> {
+        use cpal::traits::{DeviceTrait, StreamTrait};
+
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
         let config = supported.config();
         let captured = Arc::new(Mutex::new(Captured::default()));
         let down = Downmix::new(config.sample_rate, rate);
         let stream = match supported.sample_format() {
-            cpal::SampleFormat::F32 => build::<f32>(&device, config, down, &captured),
-            cpal::SampleFormat::I16 => build::<i16>(&device, config, down, &captured),
-            cpal::SampleFormat::I32 => build::<i32>(&device, config, down, &captured),
-            cpal::SampleFormat::U16 => build::<u16>(&device, config, down, &captured),
-            cpal::SampleFormat::U8 => build::<u8>(&device, config, down, &captured),
+            cpal::SampleFormat::F32 => build::<f32>(device, config, down, &captured),
+            cpal::SampleFormat::I16 => build::<i16>(device, config, down, &captured),
+            cpal::SampleFormat::I32 => build::<i32>(device, config, down, &captured),
+            cpal::SampleFormat::U16 => build::<u16>(device, config, down, &captured),
+            cpal::SampleFormat::U8 => build::<u8>(device, config, down, &captured),
             f => return Err(format!("unsupported input sample format {f}")),
         }?;
         stream.play().map_err(|e| e.to_string())?;
