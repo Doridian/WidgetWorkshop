@@ -180,11 +180,15 @@ struct Workshop {
     editor: Editor,
     sound: Sound,
     palette: [[u8; 3]; 256],
+    theme: platform::theme::SystemTheme,
 }
 
 impl App for Workshop {
     fn update(&mut self, elapsed: Duration) {
         let ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
+        if let Some(dark) = self.theme.changed() {
+            self.editor.set_system_dark(dark);
+        }
         self.editor.update(ms, sound::local_time());
         let cmds = self.editor.take_sounds();
         self.sound.play(cmds);
@@ -374,10 +378,13 @@ fn start(args: &Args, assets: Assets) -> Result<(), platform::Error> {
         editor.mic = Box::new(sound::Microphone::default());
         platform::audio::Audio::open()
     };
+    let theme = platform::theme::SystemTheme::new();
+    editor.set_system_dark(theme.dark());
     let app = Workshop {
         editor,
         sound: Sound::new(audio),
         palette,
+        theme,
     };
     platform::run("Widget Workshop", args.window.clone(), app)
 }

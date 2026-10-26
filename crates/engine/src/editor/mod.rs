@@ -235,6 +235,10 @@ pub struct Editor {
     /// The Light and Sound buttons (`DAT_00493ddc`, `DAT_00493ddd`).
     pub light: bool,
     pub sound: bool,
+    /// The Light button pressed away from the system's dark mode; none
+    /// while it follows it ([`Editor::set_system_dark`]).
+    light_chosen: Option<bool>,
+    system_dark: bool,
     main_bar: Bar,
     tray: Tray,
     /// The toolbars' order, the top one last.
@@ -318,6 +322,8 @@ impl Editor {
             finished: false,
             light: true,
             sound: true,
+            light_chosen: None,
+            system_dark: false,
             main_bar: toolbar::main_toolbar(),
             tray,
             bars: [Which::Main, Which::Tray],
@@ -382,6 +388,17 @@ impl Editor {
             return;
         }
         self.confirm_save(Next::Exit);
+    }
+
+    /// The system is in dark mode or not. The Light button follows it,
+    /// light off in dark mode, until pressed away from it; pressed back
+    /// it follows it again.
+    pub fn set_system_dark(&mut self, dark: bool) {
+        self.system_dark = dark;
+        self.light = self.light_chosen.unwrap_or(!dark);
+        if let Some(e) = self.main_bar.get_mut(id::LIGHT) {
+            e.on = self.light;
+        }
     }
 
     /// The window's title (`0x417092`): "Widget Workshop - name".
@@ -1518,6 +1535,8 @@ impl Editor {
                 self.ui_sound(if on { snd::LIGHT_ON } else { snd::LIGHT_OFF });
                 self.ui_sound(snd::CLICK);
                 self.light = on;
+                // Pressed back to the system's, it follows it again.
+                self.light_chosen = (on == self.system_dark).then_some(on);
             }
             id::SOUND => {
                 self.ui_sound(snd::CLICK);

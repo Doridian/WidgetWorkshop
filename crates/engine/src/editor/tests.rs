@@ -170,6 +170,30 @@ fn running_takes_clicks_and_keys_only() {
     assert!(e.tray.bar.visible);
 }
 
+/// The Light button follows the system's dark mode until pressed away
+/// from it, and again once pressed back.
+#[test]
+fn light_follows_the_system_until_pressed() {
+    let Some(mut e) = editor() else { return };
+    let light_on = |e: &Editor| (e.light, e.main_bar.get(id::LIGHT).unwrap().on);
+    let press = |e: &mut Editor| {
+        let on = !e.main_bar.get(id::LIGHT).unwrap().on;
+        e.main_bar.get_mut(id::LIGHT).unwrap().on = on;
+        e.toolbar_command(id::LIGHT, on);
+    };
+    assert_eq!(light_on(&e), (true, true));
+    e.set_system_dark(true);
+    assert_eq!(light_on(&e), (false, false));
+    press(&mut e);
+    assert_eq!(light_on(&e), (true, true));
+    e.set_system_dark(false);
+    e.set_system_dark(true);
+    assert_eq!(light_on(&e), (true, true), "pressed: the system doesn't matter");
+    press(&mut e);
+    e.set_system_dark(false);
+    assert_eq!(light_on(&e), (true, true), "pressed back: it follows again");
+}
+
 /// The original has no Space key for GO / STOP (accelerator table 2 and
 /// the view's keys, `0x42385d`, only know Enter and Esc), so a Keypress
 /// set to Space just sees it, polled, while running.

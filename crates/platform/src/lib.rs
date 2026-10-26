@@ -14,6 +14,7 @@
 //! reach the game. The window's size, position and fullscreen state are
 //! remembered in the port's settings file ([`settings`]). The mouse
 //! pointer is the system's, in the shape the frame asks for ([`Cursor`]).
+//! [`theme`] tells whether the system is in dark mode.
 
 //!
 //! In the browser (`wasm32`, `docs/web.md`) the window is the page's
@@ -37,6 +38,7 @@ pub mod fs;
 mod keys;
 pub mod settings;
 pub mod storage;
+pub mod theme;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 
