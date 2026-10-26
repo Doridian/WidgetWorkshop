@@ -8,5 +8,6 @@ pub mod hr;
 pub mod iso;
 pub mod ne;
 pub mod pe;
+pub mod pzl;
 pub mod tables;
 pub mod wgt;
