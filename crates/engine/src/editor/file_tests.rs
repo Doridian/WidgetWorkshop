@@ -201,7 +201,9 @@ fn stand_alone_widgets_round_trip() {
     add(&mut e, *b"Spkr", 200, 100);
     e.doc.background = 701;
     e.path = Some(dir.join("lamp.wgt").display().to_string());
-    e.command(cmd::SAVE_INTO);
+    // Save Into is switched off (standalone::SAVE_ENABLED); go round it.
+    assert!(!e.menu.enabled(cmd::SAVE_INTO));
+    e.save_into();
     // The default name is the widget's with .EXE, in its folder.
     let (d, then) = e.file_dialog.as_ref().unwrap();
     assert_eq!(

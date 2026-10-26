@@ -926,6 +926,9 @@ impl Editor {
         if self.running {
             g.extend_from_slice(&menu::RUN_DISABLED);
         } else {
+            if !standalone::SAVE_ENABLED {
+                g.push(cmd::SAVE_INTO);
+            }
             if !self.can_undo() {
                 g.push(cmd::UNDO);
             }
@@ -995,7 +998,7 @@ impl Editor {
             cmd::ABOUT => self.about = Some(about::About::new(self.now)),
             cmd::LOAD_PUZZLE => self.confirm_save(Next::LoadPuzzle),
             cmd::IMPORT => self.confirm_save(Next::Import),
-            cmd::SAVE_INTO => self.save_into(),
+            cmd::SAVE_INTO if standalone::SAVE_ENABLED => self.save_into(),
             cmd::CONTENTS => self.open_help(),
             // Printing: nothing to print to.
             _ => {}

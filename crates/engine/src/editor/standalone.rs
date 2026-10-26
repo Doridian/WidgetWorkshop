@@ -22,6 +22,10 @@ use super::file_dialog::{IMPORT_EXE, SAVE_EXE};
 use super::prompt::Answer;
 use super::{Editor, Then, UNTITLED};
 
+/// Whether File ▸ Save Into a Stand-Alone Widget is offered. Off for now:
+/// the port doesn't write `.EXE`s. Import still works.
+pub(super) const SAVE_ENABLED: bool = false;
+
 /// What each class needs in a stand-alone (`0x4909a8`, 9-byte entries
 /// {tag, resource type, id, used} up to `Done`): picture sheets (1004,
 /// `WWGADGET.DLL`'s) and sounds (1006, `WWSOUND.DLL`'s).
