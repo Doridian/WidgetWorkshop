@@ -677,8 +677,8 @@ even if the dialog is then cancelled.
   for i in 0..40000:
      b = fgetc(); if ch == 2: b = fgetc()        // keeps the 2nd (right) channel byte
      if b == EOF: break
-     repeat (rate>=22000) + (rate>=30000) + (rate>=44000) times: skip one frame the same way (EOF → break out)
-     buf[i] = b
+     repeat (rate>=22000) + (rate>=30000) + (rate>=44000) times: b = the next frame, read the same way (EOF → break out)
+     buf[i] = b                                  // the LAST frame of each group is kept
   buf[i..40000] = 0x80
   ```
 
@@ -687,7 +687,7 @@ even if the dialog is then cancelled.
 
 Saved data, after the 0x150 base: **40000 bytes, the raw samples,
 unsigned 8-bit, mono, 11025 Hz**, with no length or rate field. The
-chunk size is always 0x9e90. No FUNWIDGE example contains a Tape (the
+chunk size is always 0x9d90. No FUNWIDGE example contains a Tape (the
 "Tape" bytes in SHOTMOON.WGT are help text).
 
 ---

@@ -4,6 +4,7 @@
 //! table with `0x41db6c`, the gadget id it stores at `+0x28`).
 
 mod science;
+pub mod sound_time;
 
 use crate::gadget::{Behavior, Tag, Unknown};
 
@@ -46,12 +47,12 @@ classes! {
     b"Pend" "cPendulum" 1000 1000 1000 science::pendulum;
     b"Drop" "cDropChamber" 1001 1001 1001 science::drop_chamber;
     b"Cano" "cPhysicsCanon" 1002 1002 1002 science::physics_canon;
-    b"Wtch" "cStopWatch" 1004 1004 1004 unknown;
+    b"Wtch" "cStopWatch" 1004 1004 1004 sound_time::stop_watch;
     b"rand" "cRandomNumberGenerator" 1007 1007 1007 unknown;
-    b"Fork" "cTuningFork" 1008 1008 1008 unknown;
-    b"DClk" "cDigitalClock" 1009 1009 1009 unknown;
+    b"Fork" "cTuningFork" 1008 1008 1008 sound_time::tuning_fork;
+    b"DClk" "cDigitalClock" 1009 1009 1009 sound_time::digital_clock;
     b"Key_" "cKey" 1010 1010 1010 unknown;
-    b"Metr" "cMetronome" 1011 1011 1011 unknown;
+    b"Metr" "cMetronome" 1011 1011 1011 sound_time::metronome;
     b"swit" "cSwitch" 1012 1012 1012 unknown;
     b"di10" "cDisplay10" 1014 1014 1014 unknown;
     b"Sldr" "cSlider" 1015 1015 1015 unknown;
@@ -76,7 +77,7 @@ classes! {
     b"Divr" "cDivider" 2019 1020 1020 unknown;
     b"Conv" "cConversion" 2020 1026 1026 unknown;
     b"Comp" "cComparison" 2021 1028 1028 unknown;
-    b"Tape" "cTapePlayer" 2026 1037 1037 unknown;
+    b"Tape" "cTapePlayer" 2026 1037 1037 sound_time::tape_player;
     b"TxBx" "cTextBox" 2027 1047 1047 unknown;
     b"TxLn" "cTextLine" 2028 1046 1046 unknown;
     b"MsMv" "cMouseMove" 2029 1039 1039 unknown;
@@ -84,11 +85,11 @@ classes! {
     b"MsCl" "cMouseClick" 2032 1040 1040 unknown;
     b"Cntr" "cCounter" 2033 1041 1041 unknown;
     b"GrPr" "cGraphicProjector" 2035 1050 1050 unknown;
-    b"SdSw" "cSoundSwitch" 2037 1045 1045 unknown;
-    b"SdTr" "cSoundTransformer" 2038 1044 1044 unknown;
-    b"AnSd" "cAnimalSound" 2040 1042 1042 unknown;
-    b"MsSd" "cMiscSound" 2041 1043 1043 unknown;
-    b"Spkr" "cSpeaker" 2042 1038 1038 unknown;
+    b"SdSw" "cSoundSwitch" 2037 1045 1045 sound_time::sound_switch;
+    b"SdTr" "cSoundTransformer" 2038 1044 1044 sound_time::sound_transformer;
+    b"AnSd" "cAnimalSound" 2040 1042 1042 sound_time::animal_sound;
+    b"MsSd" "cMiscSound" 2041 1043 1043 sound_time::misc_sound;
+    b"Spkr" "cSpeaker" 2042 1038 1038 sound_time::speaker;
     b"Stop" "cStopper" 2043 1051 1051 unknown;
     b"StCh" "cStripChart" 2044 1049 1049 unknown;
     b"TxLb" "cTextLabel" 2045 0 0 unknown;
