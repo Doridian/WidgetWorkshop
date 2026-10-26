@@ -1,5 +1,6 @@
 //! The port's own settings file, separate from anything the original
-//! reads: the window's size and position and whether it was fullscreen,
+//! reads: the window's size and position, whether it was fullscreen and
+//! the UI scale,
 //! remembered from one run to the next. It lives in the platform's
 //! config directory ([`crate::storage::config_dir`]) as `settings.ini`,
 //! one `key=value` per line:
@@ -10,8 +11,11 @@
 //! window_x=120
 //! window_y=80
 //! fullscreen=false
+//! ui_scale=auto
 //! ```
 //!
+//! `ui_scale` is `auto` (the display's scale factor) or how many window
+//! pixels make one of the game's, such as `2` or `1.5` ([`UiScale`]).
 //! Sizes are in logical pixels (the desktop's points, before the
 //! display's scale factor), positions in physical pixels as the window
 //! system reports them. Unknown keys and lines that don't parse are
@@ -36,16 +40,53 @@
 //! Writing the window's state keeps every other line of the file, and
 //! writing the switches keeps every line but theirs.
 
+use std::fmt;
 use std::path::{Path, PathBuf};
 
+/// How big the game is drawn: how many window pixels make one of its
+/// desktop's (`crate::ui_scale`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum UiScale {
+    /// The display's scale factor.
+    #[default]
+    Auto,
+    /// This scale whatever the display.
+    Fixed(f64),
+}
+
+impl UiScale {
+    /// `auto` or a positive number; `None` for anything else.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        let text = text.trim();
+        if text.eq_ignore_ascii_case("auto") {
+            return Some(UiScale::Auto);
+        }
+        text.parse::<f64>()
+            .ok()
+            .filter(|n| n.is_finite() && *n > 0.0)
+            .map(UiScale::Fixed)
+    }
+}
+
+impl fmt::Display for UiScale {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UiScale::Auto => write!(f, "auto"),
+            UiScale::Fixed(n) => write!(f, "{n}"),
+        }
+    }
+}
+
 /// What the settings file remembers about the window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct WindowSettings {
     /// The windowed client area's size, in logical pixels.
     pub size: Option<(u32, u32)>,
     /// The window's outer top left, where the window system has one.
     pub position: Option<(i32, i32)>,
     pub fullscreen: bool,
+    pub ui_scale: Option<UiScale>,
 }
 
 impl WindowSettings {
@@ -65,6 +106,7 @@ impl WindowSettings {
                 "window_x" => x = value.parse::<i32>().ok(),
                 "window_y" => y = value.parse::<i32>().ok(),
                 "fullscreen" => s.fullscreen = value == "true",
+                "ui_scale" => s.ui_scale = UiScale::parse(value),
                 _ => {}
             }
         }
@@ -86,6 +128,9 @@ impl WindowSettings {
             lines.push(format!("window_y={y}"));
         }
         lines.push(format!("fullscreen={}", self.fullscreen));
+        if let Some(scale) = self.ui_scale {
+            lines.push(format!("ui_scale={scale}"));
+        }
         lines.join("\n") + "\n"
     }
 
@@ -118,7 +163,14 @@ impl WindowSettings {
 }
 
 /// The keys [`WindowSettings`] writes.
-const WINDOW_KEYS: [&str; 5] = ["window_width", "window_height", "window_x", "window_y", "fullscreen"];
+const WINDOW_KEYS: [&str; 6] = [
+    "window_width",
+    "window_height",
+    "window_x",
+    "window_y",
+    "fullscreen",
+    "ui_scale",
+];
 
 /// The enhancements' switches in the settings file: `original=true` (all
 /// off) and `enhance.<key>=on|off` (also `1`/`0`, `true`/`false`,
@@ -270,11 +322,19 @@ mod tests {
             size: Some((1024, 700)),
             position: Some((-8, 30)),
             fullscreen: true,
+            ui_scale: Some(UiScale::Fixed(1.5)),
         };
         assert_eq!(WindowSettings::parse(&s.to_text()), s);
+        let auto = WindowSettings::parse("ui_scale=auto\n");
+        assert_eq!(auto.ui_scale, Some(UiScale::Auto));
+        assert_eq!(auto.to_text(), "fullscreen=false\nui_scale=auto\n");
         assert_eq!(WindowSettings::parse(""), WindowSettings::default());
         let odd = WindowSettings::parse("window_width=0\nwindow_height=5\n# x\nfullscreen=false\nwindow_x=3\n");
         assert_eq!(odd, WindowSettings::default());
+        for bad in ["0", "-2", "big", "NaN", "inf"] {
+            assert_eq!(UiScale::parse(bad), None, "{bad}");
+        }
+        assert_eq!(UiScale::parse(" 2 "), Some(UiScale::Fixed(2.0)));
     }
 
     #[test]

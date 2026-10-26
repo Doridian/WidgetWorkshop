@@ -1,12 +1,14 @@
 //! The window, input and display. The game hands over an 8-bit framebuffer
 //! and a palette each frame, and a true-colour picture over part of it
 //! (a film); the GPU does the palette lookup and scales the picture to
-//! the window by a whole factor where it fits, letterboxed.
+//! the window by the UI scale, letterboxed, keeping the pixels sharp at
+//! scales that aren't whole.
 //! [`audio`] plays the sound.
 //!
 //! The window is resizable. Its client area divided by the UI scale (1
-//! to [`MAX_UI_SCALE`], from the display's scale factor unless it's
-//! given) is the desktop the game lays out for ([`App::resize`]), as the
+//! to [`MAX_UI_SCALE`] in quarters, from the display's scale factor
+//! unless the command line or the settings file fixes it, [`UiScale`])
+//! is the desktop the game lays out for ([`App::resize`]), as the
 //! original laid out for the Windows desktop. F11 or Alt+Enter (and
 //! Ctrl+Cmd+F on macOS) toggle borderless fullscreen; those keys don't
 //! reach the game. The window's size, position and fullscreen state are
@@ -51,13 +53,14 @@ use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{CursorIcon, Fullscreen, Window, WindowId};
 
 pub use display::Error;
+pub use settings::UiScale;
 use settings::WindowSettings;
 
 /// The smallest desktop the game lays out for, the original's minimum.
 /// A smaller window gets a framebuffer this big, letterboxed.
 pub const MIN_DESKTOP: (u32, u32) = (640, 480);
 /// The largest UI scale.
-pub const MAX_UI_SCALE: u32 = 4;
+pub const MAX_UI_SCALE: f64 = 4.0;
 /// The window's client area when neither the command line nor the
 /// settings file gives one, in desktop pixels: the original's
 /// recommended 800×600.
@@ -242,35 +245,46 @@ pub struct WindowOptions {
     pub size: Option<(u32, u32)>,
     /// Fullscreen or not (`--fullscreen`, `--windowed`).
     pub fullscreen: Option<bool>,
-    /// A fixed UI scale (`--ui-scale=N`) instead of the display's.
-    pub ui_scale: Option<u32>,
+    /// The UI scale (`--ui-scale=N|auto`).
+    pub ui_scale: Option<UiScale>,
     /// The settings file the window's state is read from and written back
     /// to when the game ends; none to remember nothing.
     pub settings_file: Option<PathBuf>,
 }
 
+/// `scale` to the nearest quarter, 1 to [`MAX_UI_SCALE`].
+fn quarters(scale: f64) -> f64 {
+    ((scale * 4.0).round() / 4.0).clamp(1.0, MAX_UI_SCALE)
+}
+
 /// The UI scale for a client area `client` (physical pixels) on a display
-/// with `scale_factor`: `fixed` if given (1 to [`MAX_UI_SCALE`]), else
-/// the scale factor rounded, made smaller while the desktop it leaves
-/// would be smaller than [`MIN_DESKTOP`].
+/// with `scale_factor`, in quarters from 1 to [`MAX_UI_SCALE`]: a fixed
+/// one as it is, else the scale factor, made smaller while the desktop
+/// it leaves would be smaller than [`MIN_DESKTOP`].
 #[must_use]
-pub fn ui_scale(client: (u32, u32), scale_factor: f64, fixed: Option<u32>) -> u32 {
-    if let Some(n) = fixed {
-        return n.clamp(1, MAX_UI_SCALE);
-    }
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let mut scale = (scale_factor.round().clamp(1.0, f64::from(MAX_UI_SCALE))) as u32;
-    while scale > 1 && (client.0 / scale < MIN_DESKTOP.0 || client.1 / scale < MIN_DESKTOP.1) {
-        scale -= 1;
+pub fn ui_scale(client: (u32, u32), scale_factor: f64, scale: UiScale) -> f64 {
+    let auto = match scale {
+        UiScale::Fixed(n) => return quarters(n),
+        UiScale::Auto => quarters(scale_factor),
+    };
+    let fits = |s: f64| {
+        let d = desktop(client, s);
+        d.0 >= MIN_DESKTOP.0 && d.1 >= MIN_DESKTOP.1
+    };
+    let mut scale = auto;
+    while scale > 1.0 && !fits(scale) {
+        scale -= 0.25;
     }
     scale
 }
 
 /// The desktop a client area `client` gives at UI scale `scale`.
 #[must_use]
-pub fn desktop(client: (u32, u32), scale: u32) -> (u32, u32) {
-    let scale = scale.max(1);
-    (client.0 / scale, client.1 / scale)
+pub fn desktop(client: (u32, u32), scale: f64) -> (u32, u32) {
+    let scale = scale.max(1.0);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let at = |px: u32| (f64::from(px) / scale).floor() as u32;
+    (at(client.0), at(client.1))
 }
 
 /// Whether `code` with `modifiers` toggles fullscreen: F11, Alt+Enter, and
@@ -296,11 +310,11 @@ struct Shown {
 
 impl Shown {
     /// Sets `frame`'s pointer and title on `w` where they changed.
-    fn update(&mut self, w: &Window, event_loop: &ActiveEventLoop, frame: &Frame<'_>) {
+    fn update(&mut self, w: &Window, event_loop: &ActiveEventLoop, frame: &Frame<'_>, ui_scale: f64) {
         if let Some(img) = frame.cursor_image {
-            let v = display::View::new(w.inner_size(), frame.width, frame.height);
+            let v = display::View::new(w.inner_size(), frame.width, frame.height, ui_scale);
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let scale = (v.scale.floor() as u32).max(1);
+            let scale = (v.scale.round() as u32).max(1);
             let key = (img.key, scale);
             if self.custom != Some(key) {
                 if let std::collections::hash_map::Entry::Vacant(e) = self.custom_cursors.entry(key) {
@@ -346,6 +360,9 @@ struct Runner<A> {
     error: Option<Error>,
     /// The desktop last handed to [`App::resize`].
     desktop: (u32, u32),
+    /// The UI scale asked for, and the one it gave last.
+    ui: UiScale,
+    scale: f64,
     modifiers: ModifiersState,
     /// The wheel's movement not yet handed on as whole notches.
     wheel: (f64, f64),
@@ -369,7 +386,7 @@ impl<A: App> Runner<A> {
             return (0, 0);
         };
         let f = self.app.frame();
-        let v = display::View::new(window.inner_size(), f.width, f.height);
+        let v = display::View::new(window.inner_size(), f.width, f.height, self.scale);
         #[allow(clippy::cast_possible_truncation)]
         let at = |p: f64, offset: f32| ((p - f64::from(offset)) / f64::from(v.scale)).floor() as i32;
         (at(pos.x, v.offset[0]), at(pos.y, v.offset[1]))
@@ -381,8 +398,14 @@ impl<A: App> Runner<A> {
         let Some((window, _)) = &self.window else { return };
         let size = window.inner_size();
         let client = (size.width, size.height);
-        let scale = ui_scale(client, window.scale_factor(), self.options.ui_scale);
+        let scale = ui_scale(client, window.scale_factor(), self.ui);
         let desktop = desktop(client, scale);
+        // Scales are whole quarters, exact in a float.
+        #[allow(clippy::float_cmp)]
+        if scale != self.scale {
+            self.scale = scale;
+            window.request_redraw();
+        }
         if desktop != self.desktop && desktop.0 > 0 && desktop.1 > 0 {
             self.desktop = desktop;
             self.app.resize(desktop.0, desktop.1);
@@ -530,14 +553,15 @@ impl<A: App> Runner<A> {
             .as_deref()
             .map(WindowSettings::load)
             .unwrap_or_default();
+        self.ui = self.options.ui_scale.or(saved.ui_scale).unwrap_or_default();
         // By default the desktop is 800×600: at a fixed UI scale that many
         // pixels times the scale, else that many points.
         let size = self.options.size.or(saved.size).unwrap_or_else(|| {
-            let Some(n) = self.options.ui_scale else {
+            let UiScale::Fixed(n) = self.ui else {
                 return DEFAULT_DESKTOP;
             };
             let factor = event_loop.primary_monitor().map_or(1.0, |m| m.scale_factor()).max(0.25);
-            let n = f64::from(n.clamp(1, MAX_UI_SCALE));
+            let n = quarters(n);
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let points = |px: u32| (f64::from(px) * n / factor).ceil() as u32;
             (points(DEFAULT_DESKTOP.0), points(DEFAULT_DESKTOP.1))
@@ -547,6 +571,7 @@ impl<A: App> Runner<A> {
             size: Some(size),
             position: saved.position,
             fullscreen,
+            ui_scale: Some(self.ui),
         };
         let mut attrs = Window::default_attributes()
             .with_title(self.title.clone())
@@ -639,8 +664,8 @@ impl<A: App> Runner<A> {
             WindowEvent::RedrawRequested => {
                 if let Some((w, d)) = &mut self.window {
                     let frame = self.app.frame();
-                    self.shown.update(w, event_loop, &frame);
-                    if let Err(e) = d.draw(&frame) {
+                    self.shown.update(w, event_loop, &frame, self.scale);
+                    if let Err(e) = d.draw(&frame, self.scale) {
                         self.fail(event_loop, e);
                     }
                 }
@@ -660,6 +685,7 @@ impl<A: App> Runner<A> {
 /// If no window or GPU device can be set up.
 pub fn run<A: App + 'static>(title: &str, options: WindowOptions, app: A) -> Result<(), Error> {
     let event_loop = EventLoop::new().map_err(|e| Error::Window(e.to_string()))?;
+    let ui = options.ui_scale.unwrap_or_default();
     let runner = Runner {
         app,
         title: title.to_owned(),
@@ -669,6 +695,8 @@ pub fn run<A: App + 'static>(title: &str, options: WindowOptions, app: A) -> Res
         mouse: (0, 0),
         error: None,
         desktop: (0, 0),
+        ui,
+        scale: 1.0,
         modifiers: ModifiersState::empty(),
         wheel: (0.0, 0.0),
         swallowed: Vec::new(),
@@ -731,17 +759,28 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn ui_scales() {
-        assert_eq!(ui_scale((1600, 1200), 2.0, None), 2);
-        assert_eq!(ui_scale((1600, 1200), 1.0, None), 1);
-        // Too small for 640×480 at 2: 1.
-        assert_eq!(ui_scale((1200, 900), 2.0, None), 1);
-        assert_eq!(ui_scale((3840, 2160), 3.0, None), 3);
-        assert_eq!(ui_scale((3840, 2160), 9.0, None), 4);
-        assert_eq!(ui_scale((800, 600), 1.0, Some(2)), 2);
-        assert_eq!(ui_scale((800, 600), 1.0, Some(7)), 4);
-        assert_eq!(desktop((1366, 700), 1), (1366, 700));
-        assert_eq!(desktop((2733, 1401), 2), (1366, 700));
+        let auto = UiScale::Auto;
+        assert_eq!(ui_scale((1600, 1200), 2.0, auto), 2.0);
+        assert_eq!(ui_scale((1600, 1200), 1.0, auto), 1.0);
+        // The default window at 150% and 125%: 800×600 either way.
+        assert_eq!(ui_scale((1200, 900), 1.5, auto), 1.5);
+        assert_eq!(ui_scale((1000, 750), 1.25, auto), 1.25);
+        // Too small for 640×480 at 2: the largest quarter that fits.
+        assert_eq!(ui_scale((1200, 900), 2.0, auto), 1.75);
+        assert_eq!(ui_scale((700, 500), 2.0, auto), 1.0);
+        assert_eq!(ui_scale((3840, 2160), 3.0, auto), 3.0);
+        assert_eq!(ui_scale((3840, 2160), 9.0, auto), 4.0);
+        // A browser zoomed to 110%: the nearest quarter.
+        assert_eq!(ui_scale((1920, 1080), 1.1, auto), 1.0);
+        assert_eq!(ui_scale((800, 600), 1.0, UiScale::Fixed(2.0)), 2.0);
+        assert_eq!(ui_scale((800, 600), 1.0, UiScale::Fixed(1.6)), 1.5);
+        assert_eq!(ui_scale((800, 600), 1.0, UiScale::Fixed(7.0)), 4.0);
+        assert_eq!(ui_scale((800, 600), 1.0, UiScale::Fixed(0.5)), 1.0);
+        assert_eq!(desktop((1366, 700), 1.0), (1366, 700));
+        assert_eq!(desktop((2733, 1401), 2.0), (1366, 700));
+        assert_eq!(desktop((1201, 899), 1.5), (800, 599));
     }
 
     #[test]

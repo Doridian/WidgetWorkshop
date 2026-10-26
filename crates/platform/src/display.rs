@@ -35,12 +35,12 @@ pub(crate) struct View {
 }
 
 impl View {
-    /// The largest whole scale that fits, centred; a fractional one if even
-    /// 1:1 doesn't fit.
-    #[allow(clippy::cast_precision_loss)]
-    pub fn new(window: PhysicalSize<u32>, width: u32, height: u32) -> Self {
+    /// The UI scale `ui_scale`, centred, or the largest scale that fits
+    /// if the frame doesn't fit at it.
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation)]
+    pub fn new(window: PhysicalSize<u32>, width: u32, height: u32, ui_scale: f64) -> Self {
         let fit = (window.width as f32 / width.max(1) as f32).min(window.height as f32 / height.max(1) as f32);
-        let scale = if fit >= 1.0 { fit.floor() } else { fit.max(f32::EPSILON) };
+        let scale = fit.min(ui_scale as f32).max(f32::EPSILON);
         let offset = [
             ((window.width as f32 - width as f32 * scale) / 2.0).floor(),
             ((window.height as f32 - height as f32 * scale) / 2.0).floor(),
@@ -285,7 +285,8 @@ impl Display {
         }
     }
 
-    pub fn draw(&mut self, frame: &Frame<'_>) -> Result<(), Error> {
+    /// Draws `frame` at UI scale `ui_scale`.
+    pub fn draw(&mut self, frame: &Frame<'_>, ui_scale: f64) -> Result<(), Error> {
         let output = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t) | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
@@ -296,7 +297,7 @@ impl Display {
             other @ wgpu::CurrentSurfaceTexture::Validation => return Err(gpu(format!("{other:?}"))),
         };
         let size = PhysicalSize::new(self.config.width, self.config.height);
-        let view = View::new(size, frame.width, frame.height);
+        let view = View::new(size, frame.width, frame.height, ui_scale);
         // An overlay whose pixels don't fill it isn't shown.
         let overlay = frame
             .overlay
@@ -416,6 +417,21 @@ fn write(queue: &wgpu::Queue, texture: &wgpu::Texture, data: &[u8], width: u32, 
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    #[allow(clippy::float_cmp)]
+    fn views() {
+        // At the UI scale, centred.
+        let v = View::new(PhysicalSize::new(1201, 901), 800, 600, 1.5);
+        assert_eq!((v.scale, v.offset), (1.5, [0.0, 0.0]));
+        let v = View::new(PhysicalSize::new(1700, 1200), 800, 600, 2.0);
+        assert_eq!((v.scale, v.offset), (2.0, [50.0, 0.0]));
+        // 640×480 in a smaller desktop: as big as fits.
+        let v = View::new(PhysicalSize::new(1200, 900), 640, 480, 2.0);
+        assert_eq!((v.scale, v.offset), (1.875, [0.0, 0.0]));
+    }
+
     /// The shader parses and validates, as `create_shader_module` would
     /// check it at run time.
     #[test]

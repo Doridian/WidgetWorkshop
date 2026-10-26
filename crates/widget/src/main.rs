@@ -2,7 +2,7 @@
 //! menu is left out), with a new widget or the one given.
 //!
 //! `widget [--overrides=DIR] [--export=DIR] [--no-audio]
-//! [--window-size=WxH] [--fullscreen|--windowed] [--ui-scale=N] [--help]
+//! [--window-size=WxH] [--fullscreen|--windowed] [--ui-scale=N|auto] [--help]
 //! [CD] [WIDGET.WGT]` ([`USAGE`]), where `CD` is the game's CD: an ISO
 //! image or a folder with its files (default: the one `.iso` in the
 //! current directory, else `orig`). `--overrides` names a folder whose
@@ -27,7 +27,7 @@ use platform::{App, Button, Cursor, CursorImage, Frame, Input, WindowOptions};
 use crate::sound::Sound;
 
 const USAGE: &str = "usage: widget [--overrides=DIR] [--export=DIR] [--no-audio] [--window-size=WxH] \
-[--fullscreen|--windowed] [--ui-scale=N] [--help] [CD] [WIDGET.WGT]
+[--fullscreen|--windowed] [--ui-scale=N|auto] [--help] [CD] [WIDGET.WGT]
 
   CD               the game's CD: an ISO image or a folder with its files
                    (default: the .iso in the current directory, else orig)
@@ -37,8 +37,12 @@ const USAGE: &str = "usage: widget [--overrides=DIR] [--export=DIR] [--no-audio]
                    puzzles in DIR/WIDGET.PZL, help in DIR/WIDGET.HLP
   --export=DIR     write every resource to DIR in that layout and quit
   --no-audio       no sound
-  --window-size=WxH, --fullscreen, --windowed, --ui-scale=N
-                   the window (remembered in the settings file)";
+  --window-size=WxH, --fullscreen, --windowed
+                   the window (remembered in the settings file)
+  --ui-scale=N|auto
+                   window pixels per game pixel, such as 2 or 1.5, in
+                   quarters; auto follows the display's scaling
+                   (remembered, ui_scale in the settings file)";
 
 struct Args {
     cd: Option<PathBuf>,
@@ -96,7 +100,8 @@ fn args(mut it: impl Iterator<Item = std::ffi::OsString>) -> Args {
             }
             "--ui-scale" => {
                 let v = value().unwrap_or_default();
-                a.window.ui_scale = Some(v.parse().unwrap_or_else(|_| usage_error(&format!("bad UI scale {v}"))));
+                let scale = platform::UiScale::parse(&v);
+                a.window.ui_scale = Some(scale.unwrap_or_else(|| usage_error(&format!("bad UI scale {v}"))));
             }
             k if k.starts_with('-') => usage_error(&format!("unknown option {k}")),
             _ => {
