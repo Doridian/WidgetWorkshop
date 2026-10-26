@@ -3,6 +3,8 @@
 //! class's init function (the sheet it loads with `0x422940`, the knot
 //! table with `0x41db6c`, the gadget id it stores at `+0x28`).
 
+mod science;
+
 use crate::gadget::{Behavior, Tag, Unknown};
 
 /// A gadget class.
@@ -41,9 +43,9 @@ macro_rules! classes {
 }
 
 classes! {
-    b"Pend" "cPendulum" 1000 1000 1000 unknown;
-    b"Drop" "cDropChamber" 1001 1001 1001 unknown;
-    b"Cano" "cPhysicsCanon" 1002 1002 1002 unknown;
+    b"Pend" "cPendulum" 1000 1000 1000 science::pendulum;
+    b"Drop" "cDropChamber" 1001 1001 1001 science::drop_chamber;
+    b"Cano" "cPhysicsCanon" 1002 1002 1002 science::physics_canon;
     b"Wtch" "cStopWatch" 1004 1004 1004 unknown;
     b"rand" "cRandomNumberGenerator" 1007 1007 1007 unknown;
     b"Fork" "cTuningFork" 1008 1008 1008 unknown;
@@ -56,10 +58,10 @@ classes! {
     b"bulb" "cLightBulb" 1016 1016 1016 unknown;
     b"hart" "cHeart" 1017 1017 1017 unknown;
     b"rgbd" "cRGBDisplay" 1018 1018 1018 unknown;
-    b"Plnt" "cPlanet" 2000 1022 1022 unknown;
+    b"Plnt" "cPlanet" 2000 1022 1022 science::planet;
     b"Ttlr" "cTotaler" 2001 1005 1005 unknown;
     b"disp" "cDisplay" 2002 1013 1013 unknown;
-    b"ArVo" "cAreaVolume" 2003 1025 1024 unknown;
+    b"ArVo" "cAreaVolume" 2003 1025 1024 science::area_volume_gadget;
     b"cnst" "cConstant" 2004 1021 1021 unknown;
     b"1ncr" "cOneNumberCruncher" 2005 1024 1024 unknown;
     b"Coin" "cCoinToss" 2006 1006 1006 unknown;
