@@ -199,7 +199,7 @@ impl Wave {
                 .chunks_exact(2 * channels)
                 .map(|f| {
                     let sum: i32 = f
-                        .chunks_exact(2)
+                        .as_chunks::<2>().0.iter()
                         .map(|s| i32::from(i16::from_le_bytes([s[0], s[1]])))
                         .sum();
                     let avg = sum / i32::try_from(channels).unwrap_or(1);
@@ -238,7 +238,7 @@ impl Wave {
 #[must_use]
 pub fn palette(d: &[u8]) -> [[u8; 3]; 256] {
     let mut out = [[0; 3]; 256];
-    for (i, q) in d.chunks_exact(4).take(256).enumerate() {
+    for (i, q) in d.as_chunks::<4>().0.iter().take(256).enumerate() {
         out[i] = [q[2], q[1], q[0]];
     }
     out

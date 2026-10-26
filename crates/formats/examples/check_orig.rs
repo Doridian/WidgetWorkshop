@@ -66,7 +66,7 @@ fn main() {
                 .chunks
                 .iter()
                 .filter(|c| &c.tag == b"conn")
-                .map(|c| wgt::Connection::parse(&c.data, v).unwrap())
+                .inspect(|c| drop(wgt::Connection::parse(&c.data, v).unwrap()))
                 .count();
             println!("{}: v{v} {} chunks, {conns} wires: {}", e.file_name().display(), tags.len(), tags.join(" "));
         }

@@ -162,7 +162,7 @@ impl Resources {
             if i == id % 16 {
                 let units: Vec<u16> = block
                     .get(at..at + 2 * len)?
-                    .chunks_exact(2)
+                    .as_chunks::<2>().0.iter()
                     .map(|c| u16::from_le_bytes([c[0], c[1]]))
                     .collect();
                 return Some(String::from_utf16_lossy(&units));
