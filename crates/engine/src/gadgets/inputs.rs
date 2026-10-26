@@ -373,6 +373,11 @@ impl Behavior for Slider {
         }
     }
 
+    /// The body, frame 16: frame 1 is only a digit.
+    fn bounds_frame(&self) -> u16 {
+        16
+    }
+
     /// `0x45202a`: not the base reset; the value and the knob stay.
     fn reset(&mut self, _core: &mut Core) {
         self.decimals.set(0);
@@ -627,6 +632,11 @@ impl Behavior for NumericKeypad {
                 }
             }
         }
+    }
+
+    /// The body, frame 15: frame 1 is only an LCD digit.
+    fn bounds_frame(&self) -> u16 {
+        15
     }
 
     fn tick(&mut self, _core: &mut Core, io: &mut Io<'_>) {

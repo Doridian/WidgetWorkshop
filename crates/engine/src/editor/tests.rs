@@ -669,3 +669,69 @@ fn help_text_wraps_in_the_pane() {
     assert!(ends.iter().all(|&x| x <= pane - 8), "{pane}: {ends:?}");
     e.draw();
 }
+
+/// The keypad's bounds are its body (frame 15), so its keys take clicks.
+#[test]
+fn keypad_takes_clicks() {
+    let Some(mut e) = editor() else { return };
+    let g = add(&mut e, *b"NmKP", 300, 300);
+    e.key_down(0x0d);
+    e.key_up(0x0d);
+    assert!(e.running);
+    // Key 1 (rect 1: top 73, left 10).
+    click(&mut e, (300 + 15, 300 + 80 + menu::BAR_H));
+    let k = e.doc.gadgets[g]
+        .behavior
+        .as_any()
+        .downcast_ref::<crate::gadgets::inputs::NumericKeypad>();
+    assert_eq!(k.unwrap().lcd(), b"         1");
+}
+
+/// Every part draws inside its bounds, stopped and running: where it
+/// doesn't, the bounds are a frame other than its body, and clicks miss.
+#[test]
+fn parts_draw_inside_bounds() {
+    use crate::gfx::{IRect, Surface};
+    let Some(e) = editor() else { return };
+    let (size, at) = (600_i32, 200);
+    for c in crate::gadgets::CLASSES {
+        let g = doc::new_gadget(&e.assets, c.tag, 1, at, at);
+        let r = g.core.rect();
+        for running in [false, true] {
+            // Drawn on two backgrounds: a pixel either changed is drawn.
+            let drawn: Vec<Vec<bool>> = [3u8, 200]
+                .iter()
+                .map(|&bg| {
+                    let mut s = Surface::new(size.cast_unsigned(), size.cast_unsigned());
+                    s.fill(IRect::new(0, 0, size, size), bg);
+                    let mut cx = DrawCx {
+                        surface: &mut s,
+                        assets: &e.assets,
+                        pictures: &e.pictures,
+                        running,
+                        ticks: 0,
+                        lights: false,
+                    };
+                    g.behavior.draw(&g.core, &mut cx);
+                    s.pixels.iter().map(|&p| p != bg).collect()
+                })
+                .collect();
+            for (i, _) in drawn[0]
+                .iter()
+                .zip(&drawn[1])
+                .enumerate()
+                .filter(|(_, (a, b))| **a || **b)
+            {
+                let i = i32::try_from(i).unwrap();
+                let (x, y) = (i % size, i / size);
+                assert!(
+                    r.x0 <= x && x < r.x1 && r.y0 <= y && y < r.y1,
+                    "{} draws at {}, {} outside {r:?} (running: {running})",
+                    c.name,
+                    x - at,
+                    y - at,
+                );
+            }
+        }
+    }
+}
