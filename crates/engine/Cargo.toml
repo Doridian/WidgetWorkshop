@@ -1,0 +1,13 @@
+[package]
+name = "engine"
+version = "0.1.0"
+description = "Widget Workshop's game: the gadgets, the simulation and the editor"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+formats = { path = "../formats" }
+
+[lints]
+workspace = true

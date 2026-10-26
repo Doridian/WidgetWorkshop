@@ -86,6 +86,7 @@ public class GhCli extends GhidraScript {
 			case "apply": cmdApply(a.length > 0 ? a[0] : null); break;
 			case "rename": need(a, 2); cmdRename(a[0], a[1], a.length > 2 ? a[2] : null); break;
 			case "export": cmdExport(a.length > 0 ? a[0] : null); break;
+			case "dumpall": need(a, 1); cmdDumpAll(a[0]); break;
 			default: throw new IllegalArgumentException("unknown command: " + cmd);
 		}
 	}
@@ -193,15 +194,7 @@ public class GhCli extends GhidraScript {
 	private void cmdDecompile(String s) throws Exception {
 		Function f = funcAt(s);
 		if (decomp == null) {
-			decomp = new DecompInterface();
-			DecompileOptions o = new DecompileOptions();
-			o.grabFromProgram(currentProgram);
-			decomp.setOptions(o);
-			decomp.toggleCCode(true);
-			decomp.setSimplificationStyle("decompile");
-			if (!decomp.openProgram(currentProgram)) {
-				throw new IllegalStateException("decompiler: " + decomp.getLastMessage());
-			}
+			cmdDecompileInit();
 		}
 		DecompileResults r = decomp.decompileFunction(f, 120, monitor);
 		if (r == null || !r.decompileCompleted()) {
@@ -211,6 +204,57 @@ public class GhCli extends GhidraScript {
 		out.println("/* " + hex(f.getEntryPoint()) + " " + f.getName() + " (" +
 			f.getCallingConventionName() + ", " + f.getBody().getNumAddresses() + " bytes) */");
 		out.print(r.getDecompiledFunction().getC());
+	}
+
+	/** Every function's decompiled C, one file per 4 KiB page of addresses
+	 *  (`<dir>/<page>.c`, functions in address order), and an index of
+	 *  `addr size name` lines, so the whole program can be grepped without
+	 *  Ghidra. */
+	private void cmdDumpAll(String dir) throws Exception {
+		Path root = Path.of(dir);
+		Files.createDirectories(root);
+		if (decomp == null) {
+			cmdDecompileInit();
+		}
+		StringBuilder index = new StringBuilder();
+		Map<Long, StringBuilder> pages = new TreeMap<>();
+		int n = 0;
+		for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+			if (monitor.isCancelled()) {
+				break;
+			}
+			long at = f.getEntryPoint().getOffset();
+			index.append(String.format("%08x %6d %s%n", at, f.getBody().getNumAddresses(), f.getName()));
+			StringBuilder page = pages.computeIfAbsent(at >>> 12, k -> new StringBuilder());
+			DecompileResults r = decomp.decompileFunction(f, 60, monitor);
+			page.append("/* ").append(hex(f.getEntryPoint())).append(" ").append(f.getName()).append(" */\n");
+			if (r != null && r.decompileCompleted()) {
+				page.append(r.getDecompiledFunction().getC());
+			}
+			else {
+				page.append("/* decompile failed */\n");
+			}
+			page.append("\n");
+			n++;
+		}
+		for (Map.Entry<Long, StringBuilder> e : pages.entrySet()) {
+			Files.writeString(root.resolve(String.format("%05x.c", e.getKey())), e.getValue().toString(),
+				StandardCharsets.UTF_8);
+		}
+		Files.writeString(root.resolve("index.txt"), index.toString(), StandardCharsets.UTF_8);
+		out.println("dumped " + n + " functions to " + root);
+	}
+
+	private void cmdDecompileInit() {
+		decomp = new DecompInterface();
+		DecompileOptions o = new DecompileOptions();
+		o.grabFromProgram(currentProgram);
+		decomp.setOptions(o);
+		decomp.toggleCCode(true);
+		decomp.setSimplificationStyle("decompile");
+		if (!decomp.openProgram(currentProgram)) {
+			throw new IllegalStateException("decompiler: " + decomp.getLastMessage());
+		}
 	}
 
 	private void cmdDisasm(String s) {

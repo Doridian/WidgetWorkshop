@@ -1,0 +1,43 @@
+[package]
+name = "platform"
+version = "0.1.0"
+description = "Window, input, display and sound for the Widget Workshop port"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["audio-device"]
+# Sound output through cpal (ALSA on Linux, WebAudio in the browser).
+# Without it the game is silent.
+audio-device = ["dep:cpal"]
+
+[dependencies]
+cpal = { version = "0.18", optional = true }
+formats = { path = "../formats" }
+# `std::time` natively; the browser's clock on wasm, where `std::time`
+# panics.
+web-time = "1.1"
+wgpu = "30"
+winit = "0.30"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = "1"
+
+# The browser build (docs/web.md): WebGPU, falling back to WebGL2;
+# WebAudio through cpal.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+cpal = { version = "0.18", optional = true, features = ["wasm-bindgen"] }
+# The version of the wasm-bindgen CLI that builds the page
+# (tools/build-web.sh): the two must match exactly.
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["console", "Document", "Element", "HtmlCanvasElement", "Window"] }
+wgpu = { version = "30", features = ["webgl"] }
+
+[dev-dependencies]
+# The shader's validation, with wgpu's own WGSL front end.
+naga = { version = "30", features = ["wgsl-in"] }
+
+[lints]
+workspace = true

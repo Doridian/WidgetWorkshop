@@ -11,6 +11,7 @@
   tools/gh apply [file]               symbols/<program>.txt -> Ghidra DB
   tools/gh rename <addr|name> <new> [func|data]   rename in DB and symbol file
   tools/gh export [file]              Ghidra DB user names -> symbols/<program>.txt
+  tools/gh dumpall <dir>              every function's C into <dir>/<4K page>.c, plus index.txt
   tools/gh batch < cmds               several commands (one per line) in one JVM
 
 Addresses are flat hex (401000, 0x401000, FUN_00401000) or symbol names; regexes are case-insensitive. Every call is serialized with flock
@@ -33,7 +34,7 @@ SCRIPTS = ROOT / "tools" / "ghidra" / "scripts"
 GHIDRA = Path(os.environ.get("GHIDRA_INSTALL_DIR", "/opt/ghidra"))
 PROGRAM = os.environ.get("GH_PROGRAM", "WIDGET.EXE")
 
-READ_CMDS = {"decompile", "disasm", "listing", "xrefs", "strings", "cstrings", "funcs", "export"}
+READ_CMDS = {"dumpall", "decompile", "disasm", "listing", "xrefs", "strings", "cstrings", "funcs", "export"}
 WRITE_CMDS = {"apply", "rename"}
 
 
