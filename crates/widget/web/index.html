@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- The browser build's page (docs/web.md). tools/build-web.sh copies it
+     into web/ beside widget.js and widget_bg.wasm. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Widget Workshop</title>
+<link rel="icon" href="icon.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #008080; color: #000; overflow: hidden;
+    font: 14px/1.4 "MS Sans Serif", Tahoma, system-ui, sans-serif; }
+  /* The game's window: the whole page; winit follows its size. */
+  canvas#widget { display: block; width: 100vw; height: 100vh; outline: none; touch-action: none; }
+  /* The start form, a Windows 95 dialog like the editor's own. */
+  #setup { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    background: #008080; }
+  #setup[hidden] { display: none; }
+  #setup form { max-width: 30em; margin: 16px; background: #c0c0c0; padding: 3px;
+    border: 2px solid; border-color: #fff #000 #000 #fff; box-shadow: inset -1px -1px #808080, inset 1px 1px #dfdfdf; }
+  #setup .title { display: flex; align-items: center; gap: 6px; padding: 3px 6px; color: #fff; font-weight: 700;
+    background: linear-gradient(90deg, #000080, #1084d0); }
+  #setup .title img { width: 16px; height: 16px; }
+  #setup .body { padding: 12px 14px 14px; }
+  #setup p { margin: .5em 0; }
+  #setup label { display: block; margin: .8em 0 .3em; font-weight: 700; }
+  #setup input[type=file] { max-width: 100%; }
+  #setup .note { color: #333; font-size: .92em; }
+  #setup .stored { margin: .3em 0; }
+  #setup-error { color: #a00000; font-weight: 700; }
+  #setup .buttons { text-align: right; margin-top: 1em; }
+  #start { min-width: 7em; padding: 4px 12px; font: inherit; background: #c0c0c0; color: #000;
+    border: 2px solid; border-color: #fff #000 #000 #fff; box-shadow: inset -1px -1px #808080, inset 1px 1px #dfdfdf; }
+  #start:active:not(:disabled) { border-color: #000 #fff #fff #000; box-shadow: inset 1px 1px #808080; }
+  #start:disabled { color: #808080; text-shadow: 1px 1px #fff; }
+  #status { position: fixed; left: 0; right: 0; bottom: 0; padding: .4em 1em; background: #000c; color: #eee;
+    white-space: pre-wrap; }
+  #status.error { background: #800c; }
+</style>
+</head>
+<body>
+<canvas id="widget" oncontextmenu="return false"></canvas>
+<div id="setup" hidden>
+  <form onsubmit="return false">
+    <div class="title"><img src="icon.png" alt="">Widget Workshop</div>
+    <div class="body">
+      <p id="setup-error" hidden></p>
+      <label for="cd-file">The game's CD image (.iso)</label>
+      <p id="cd-stored" class="stored" hidden>Kept from last time: <span id="cd-name"></span>.
+        Pick another to replace it.</p>
+      <input type="file" id="cd-file" accept=".iso">
+      <p class="note">Widget Workshop: A Mad Scientist's Laboratory, the Mac/PC CD. The image stays in this
+        browser's storage and isn't sent anywhere; so do the widgets you save.</p>
+      <div class="buttons"><button id="start" type="submit" disabled>Start</button></div>
+    </div>
+  </form>
+</div>
+<div id="status" style="display:none"></div>
+<script type="module">
+  import init from "./widget.js";
+  init().catch((e) => {
+    const s = document.getElementById("status");
+    s.textContent = String(e);
+    s.className = "error";
+    s.style.display = "";
+  });
+</script>
+</body>
+</html>

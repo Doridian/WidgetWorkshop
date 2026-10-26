@@ -1,3 +1,6 @@
+// A window, not a console, on Windows (the release build).
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 //! Widget Workshop. Opens straight into the editor (the original's main
 //! menu is left out), with a new widget or the one given.
 //!
@@ -8,14 +11,36 @@
 //! current directory, else `orig`). `--overrides` names a folder whose
 //! files replace or add to the CD's resources (`engine::assets`);
 //! `--export` writes every resource there in that layout and quits.
+//! Started without a CD and with none here (a packaged app started from
+//! its icon), it asks for one (`pick`). In the browser (`web`,
+//! `docs/web.md`) the page asks for the CD image and its query is the
+//! command line.
+
+/// In the browser `std`'s standard output and error go nowhere: what the
+/// port says goes to the console (`platform::web::log`).
+#[cfg(target_arch = "wasm32")]
+macro_rules! eprintln {
+    ($($t:tt)*) => {
+        platform::web::log(&format!($($t)*))
+    };
+}
+#[cfg(target_arch = "wasm32")]
+macro_rules! println {
+    ($($t:tt)*) => {
+        platform::web::log(&format!($($t)*))
+    };
+}
 
 mod cd;
 mod files;
+#[cfg(not(target_arch = "wasm32"))]
+mod pick;
 mod profile;
 mod sound;
+#[cfg(target_arch = "wasm32")]
+mod web;
 
 use std::path::PathBuf;
-use std::process::exit;
 
 use web_time::Duration;
 
@@ -53,8 +78,38 @@ struct Args {
     window: WindowOptions,
 }
 
+/// Ends the program with `code`. The browser build can't: the page
+/// shows that it stopped, and the module stops by panicking.
+fn exit(code: i32) -> ! {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if code != 0 {
+            platform::web::show_error("Widget Workshop stopped; the console (F12) says why.");
+        }
+        panic!("Widget Workshop stopped ({code})");
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    std::process::exit(code)
+}
+
+/// `msg` where the player sees it (`pick::fatal`, in the browser the
+/// page), and the end.
+fn fail(msg: &str) -> ! {
+    #[cfg(not(target_arch = "wasm32"))]
+    pick::fatal(msg);
+    #[cfg(target_arch = "wasm32")]
+    {
+        eprintln!("{msg}");
+        platform::web::show_error(msg);
+    }
+    exit(1);
+}
+
 fn usage_error(msg: &str) -> ! {
-    eprintln!("{msg}\n{USAGE}");
+    #[cfg(not(target_arch = "wasm32"))]
+    pick::fatal(&format!("{msg}\n{USAGE}"));
+    #[cfg(target_arch = "wasm32")]
+    platform::web::show_error(msg);
     exit(2);
 }
 
@@ -198,6 +253,7 @@ impl App for Workshop {
 /// The CD to read when none is given: of the `.iso`s here, the first with
 /// the fonts ([`engine::assets::FONT_DIR`]), else the first that opens,
 /// else `orig`.
+#[cfg(not(target_arch = "wasm32"))]
 fn default_cd() -> PathBuf {
     let mut isos: Vec<PathBuf> = std::fs::read_dir(".")
         .into_iter()
@@ -208,36 +264,68 @@ fn default_cd() -> PathBuf {
         .collect();
     isos.sort();
     let opened: Vec<(&PathBuf, Box<dyn Source>)> = isos.iter().filter_map(|p| Some((p, cd::open(p).ok()?))).collect();
-    let has_fonts = |cd: &dyn Source| !cd.list(engine::assets::FONT_DIR).is_empty();
     opened
         .iter()
-        .find(|(_, cd)| has_fonts(cd.as_ref()))
+        .find(|(_, cd)| cd::has_fonts(cd.as_ref()))
         .or(opened.first())
         .map_or_else(|| PathBuf::from("orig"), |(p, _)| (*p).clone())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    // A panic's message in a box too when started from the icon.
+    let report = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        report(info);
+        if !std::io::IsTerminal::is_terminal(&std::io::stderr()) {
+            pick::error_box(&format!("Widget Workshop stopped: {info}"));
+        }
+    }));
     let args = args(std::env::args_os().skip(1));
-    let cd_path = args.cd.clone().unwrap_or_else(default_cd);
+    let cd_path = match args.cd.clone() {
+        Some(p) => p,
+        // Started without a CD, and there's none here: the one picked
+        // before, or the player picks it (`pick`).
+        None if args.overrides.is_none() && args.export.is_none() => pick::cd(&default_cd()).unwrap_or_else(|| {
+            fail("no CD: start it with the game's CD image or folder as its argument, or pick it when it asks")
+        }),
+        None => default_cd(),
+    };
     let cd = match cd::open(&cd_path) {
         Ok(cd) => Some(cd),
         Err(e) if args.overrides.is_some() => {
             eprintln!("{}: {e}; using the overrides alone", cd_path.display());
             None
         }
-        Err(e) => {
-            eprintln!("{}: {e}", cd_path.display());
-            exit(1);
-        }
+        Err(e) => fail(&format!("{}: {e}", cd_path.display())),
     };
-    let overrides = args.overrides.clone().map(engine::assets::Dir);
-    let assets = match Assets::load(cd.as_deref(), overrides.as_ref().map(|o| o as &dyn Source)) {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("{}: {e}", cd_path.display());
-            exit(1);
+    let overrides = args
+        .overrides
+        .clone()
+        .map(|d| Box::new(engine::assets::Dir(d)) as Box<dyn Source>);
+    let assets = load(&cd_path, cd.as_deref(), overrides.as_deref());
+    if let Some(dir) = &args.export {
+        match cd::export(&assets, dir) {
+            Ok(n) => println!("{n} files written to {}", dir.display()),
+            Err(e) => fail(&format!("{}: {e}", dir.display())),
         }
-    };
+        return;
+    }
+    if let Err(e) = start(&args, assets) {
+        fail(&e.to_string());
+    }
+}
+
+/// The browser build: `web` sets up the files and then [`start`]s.
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    web::main();
+}
+
+/// The game's resources from `cd` and `overrides`; the end if they don't
+/// load.
+fn load(cd_path: &std::path::Path, cd: Option<&dyn Source>, overrides: Option<&dyn Source>) -> Assets {
+    let assets = Assets::load(cd, overrides).unwrap_or_else(|e| fail(&format!("{}: {e}", cd_path.display())));
     if assets.fonts.is_empty() {
         eprintln!(
             "{}: no fonts in {} (or the overrides' fonts folder); text won't be drawn",
@@ -245,20 +333,20 @@ fn main() {
             engine::assets::FONT_DIR
         );
     }
-    if let Some(dir) = &args.export {
-        match cd::export(&assets, dir) {
-            Ok(n) => println!("{n} files written to {}", dir.display()),
-            Err(e) => {
-                eprintln!("{}: {e}", dir.display());
-                exit(1);
-            }
-        }
-        return;
-    }
+    assets
+}
+
+/// Opens the editor on `assets` as `args` say: the widget, the sound,
+/// the window. Natively it returns when the game ends; in the browser at
+/// once, the page's events running the game from then on.
+///
+/// # Errors
+/// If the window or the GPU can't be set up.
+fn start(args: &Args, assets: Assets) -> Result<(), platform::Error> {
     let mut doc = Document::new();
     let mut path = None;
     if let Some(p) = &args.widget {
-        match std::fs::read(p)
+        match platform::fs::read(p)
             .map_err(|e| e.to_string())
             .and_then(|b| Document::load(&assets, &b).map_err(|e| e.to_string()))
         {
@@ -291,8 +379,5 @@ fn main() {
         sound: Sound::new(audio),
         palette,
     };
-    if let Err(e) = platform::run("Widget Workshop", args.window, app) {
-        eprintln!("{e}");
-        exit(1);
-    }
+    platform::run("Widget Workshop", args.window.clone(), app)
 }

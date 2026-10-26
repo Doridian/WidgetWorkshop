@@ -11,7 +11,26 @@ engine = { path = "../engine" }
 formats = { path = "../formats" }
 platform = { path = "../platform" }
 web-time = "1.1"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# `wasmbind`: the browser's clock on wasm, where `std::time` panics.
+chrono = { version = "0.4", default-features = false, features = ["clock", "wasmbind"] }
+
+# The file dialog that asks for the CD when it isn't given (`pick`):
+# natively only, the browser's page asks for it itself.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rfd = "0.17"
+
+# The browser build (docs/web.md): the page's storage and its query.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"
+# The version of the wasm-bindgen CLI that builds the page
+# (tools/build-web.sh): the two must match exactly.
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Blob", "Location", "Window"] }
+
+# The Windows executable's icon (build.rs).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [lints]
 workspace = true

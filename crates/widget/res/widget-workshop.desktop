@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Widget Workshop
+Comment=The port of Widget Workshop (needs the game's CD image)
+Exec=widget %f
+Icon=widget-workshop
+Categories=Game;Education;Science;
+Terminal=false

@@ -1,10 +1,15 @@
 //! The game's CD as the engine reads it: an ISO image (through
-//! `platform::data`) or a folder; and `--export`.
+//! `platform::data`) or a folder; and `--export`. In the browser only
+//! the image the page read ([`image`]).
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::io;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
-use engine::assets::{Assets, Dir, Module, Source, rt};
+use engine::assets::Source;
+#[cfg(not(target_arch = "wasm32"))]
+use engine::assets::{Assets, Dir, Module, rt};
 use platform::fs::Source as _;
 
 /// A CD image as a [`Source`].
@@ -23,10 +28,23 @@ impl Source for Image {
     }
 }
 
+/// The CD image `cd` as a [`Source`] (the browser's, read into memory).
+#[cfg(target_arch = "wasm32")]
+pub fn image(cd: platform::data::CdImage) -> Box<dyn Source> {
+    Box::new(Image(cd))
+}
+
+/// Whether `cd` has the fonts ([`engine::assets::FONT_DIR`]): the
+/// Mac/PC CD, not just an install folder.
+pub fn has_fonts(cd: &dyn Source) -> bool {
+    !cd.list(engine::assets::FONT_DIR).is_empty()
+}
+
 /// The CD at `path`: an image file or a folder.
 ///
 /// # Errors
 /// If it's neither, or the image isn't ISO 9660.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn open(path: &Path) -> Result<Box<dyn Source>, String> {
     if path.is_dir() {
         return Ok(Box::new(Dir(path.to_owned())));
@@ -38,6 +56,7 @@ pub fn open(path: &Path) -> Result<Box<dyn Source>, String> {
 }
 
 /// The file extension a resource of type `typ` is exported with.
+#[cfg(not(target_arch = "wasm32"))]
 fn extension(m: Module, typ: u32) -> &'static str {
     match (m, typ) {
         (_, rt::PICTURES) => "hr",
@@ -56,6 +75,7 @@ fn extension(m: Module, typ: u32) -> &'static str {
 ///
 /// # Errors
 /// If a file can't be written.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn export(assets: &Assets, dir: &Path) -> io::Result<usize> {
     let mut n = 0;
     for (m, typ, id, bytes) in assets.all() {

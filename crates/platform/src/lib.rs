@@ -353,6 +353,8 @@ impl Shown {
 struct Runner<A> {
     app: A,
     title: String,
+    /// The window's size and fullscreen: the page has no window to size.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     options: WindowOptions,
     window: Option<(Arc<Window>, display::Display)>,
     last: Instant,

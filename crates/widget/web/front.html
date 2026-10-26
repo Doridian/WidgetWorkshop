@@ -1,0 +1,149 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- The front page of the published browser build (GitHub Pages, see
+     .github/workflows/build.yml). The game itself is widget.html next to it
+     (index.html here, copied by tools/build-web.sh). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="A native port of Maxis' Widget Workshop (1995) to Rust: play it in your browser, or on Linux, Windows and macOS.">
+<title>Widget Workshop</title>
+<link rel="icon" href="icon.png">
+<style>
+  :root {
+    --bg: #17112f; --bg2: #221a45; --fg: #ece9f7; --muted: #a9a3c6; --card: #241c4a; --line: #3a3070;
+    --accent: #ffc23d; --accent-fg: #1a1233; --green: #5ee07a; --link: #9fd0ff;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f6f4fb; --bg2: #ebe6f7; --fg: #1d1838; --muted: #5a537a; --card: #fff; --line: #d8d0ee;
+      --accent: #e0a000; --accent-fg: #1a1233; --green: #1f9a3c; --link: #2456b8;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f6f4fb; --bg2: #ebe6f7; --fg: #1d1838; --muted: #5a537a; --card: #fff; --line: #d8d0ee;
+    --accent: #e0a000; --accent-fg: #1a1233; --green: #1f9a3c; --link: #2456b8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--link); }
+  main { max-width: 52em; margin: 0 auto; padding: 0 16px 48px; }
+  header { background: linear-gradient(180deg, var(--bg2), var(--bg)); border-bottom: 1px solid var(--line); }
+  .hero { max-width: 52em; margin: 0 auto; padding: 40px 16px 32px; display: flex; gap: 28px; align-items: center; }
+  .hero img { width: 136px; height: 136px; flex: none; filter: drop-shadow(0 6px 18px #0006); }
+  .hero h1 { margin: 0; font-size: 2.6em; line-height: 1.1; letter-spacing: -0.01em; }
+  .hero .sub { margin: 4px 0 0; color: var(--muted); font-size: 1.1em; }
+  .hero .cta { margin-top: 18px; }
+  @media (max-width: 560px) {
+    .hero { flex-direction: column; text-align: center; padding-top: 28px; }
+    .hero img { width: 104px; height: 104px; }
+    .hero h1 { font-size: 2em; }
+  }
+  .button { display: inline-block; margin: 4px 8px 4px 0; padding: 9px 18px; border-radius: 8px; border: 1px solid var(--accent);
+            color: var(--accent); text-decoration: none; font-weight: 650; }
+  .button.primary { background: var(--accent); color: var(--accent-fg); }
+  .button:hover { filter: brightness(1.08); }
+  h2 { font-size: 1.25em; margin: 0 0 10px; }
+  section { margin: 28px 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  .steps { counter-reset: step; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(14em, 1fr)); }
+  .steps .card { position: relative; padding-top: 44px; }
+  .steps .card::before { counter-increment: step; content: counter(step); position: absolute; top: 14px; left: 20px;
+    width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--accent-fg);
+    font-weight: 700; font-size: .85em; display: grid; place-items: center; }
+  .steps h3 { margin: 0 0 6px; font-size: 1.05em; }
+  .steps p { margin: 6px 0; }
+  .downloads { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(15em, 1fr)); }
+  .downloads a { display: block; text-decoration: none; color: var(--fg); background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 16px; }
+  .downloads a:hover { border-color: var(--accent); }
+  .downloads strong { display: block; }
+  .downloads span { color: var(--muted); font-size: .9em; }
+  ul.features { padding-left: 1.2em; margin: 8px 0; }
+  ul.features li { margin: 6px 0; }
+  ul.features li::marker { color: var(--green); }
+  code { font-size: .92em; overflow-wrap: anywhere; }
+  .muted { color: var(--muted); }
+  footer { color: var(--muted); font-size: .9em; border-top: 1px solid var(--line); margin-top: 40px; padding-top: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="hero">
+    <img src="icon.png" alt="">
+    <div>
+      <h1>Widget Workshop</h1>
+      <p class="sub">A Mad Scientist's Laboratory. Maxis' 1995 gadget-building toy, ported to Rust, playable in your browser.</p>
+      <div class="cta">
+        <a class="button primary" href="widget.html">Play in the browser</a>
+        <a class="button" href="#downloads">Download</a>
+      </div>
+    </div>
+  </div>
+</header>
+<main>
+  <section>
+    <h2>How to play</h2>
+    <div class="steps">
+      <div class="card">
+        <h3>Get the CD</h3>
+        <p>This site has no game data. The Mac/PC CD is on the Internet Archive as a zip; unzip it for the <code>.iso</code>.</p>
+        <p><a href="https://archive.org/details/widget-workshop-a-mad-scientists-laboratory-1996-maxis-mac-pc" target="_blank" rel="noopener">Widget Workshop on archive.org</a>
+          (<a href="https://archive.org/download/widget-workshop-a-mad-scientists-laboratory-1996-maxis-mac-pc/Widget%20Workshop%20-%20A%20Mad%20Scientist%27s%20Laboratory%20%281996%29%28Maxis%29%5BMac-PC%5D.zip" rel="noopener">zip, 196&nbsp;MB</a>)</p>
+      </div>
+      <div class="card">
+        <h3>Open the game</h3>
+        <p><a href="widget.html">Open it</a>, choose the <code>.iso</code> and press <strong>Start</strong>.
+          The game reads it in your browser; nothing is uploaded.</p>
+      </div>
+      <div class="card">
+        <h3>Build</h3>
+        <p>The browser keeps the CD and the widgets you save, so next time it starts straight away.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="downloads">
+    <h2>Download</h2>
+    <p class="muted">The native builds ask for the CD image the first time they start, then remember it.</p>
+    <div class="downloads">
+      <a href="https://github.com/Doridian/WidgetWorkshop/releases/latest/download/widget-workshop-windows-x86_64.exe">
+        <strong>Windows</strong><span>x86-64, a single .exe</span></a>
+      <a href="https://github.com/Doridian/WidgetWorkshop/releases/latest/download/widget-workshop-macos.dmg">
+        <strong>macOS</strong><span>Apple silicon and Intel, .dmg</span></a>
+      <a href="https://github.com/Doridian/WidgetWorkshop/releases/latest/download/widget-workshop-linux-x86_64.AppImage">
+        <strong>Linux x86-64</strong><span>AppImage</span></a>
+      <a href="https://github.com/Doridian/WidgetWorkshop/releases/latest/download/widget-workshop-linux-arm64.AppImage">
+        <strong>Linux arm64</strong><span>AppImage</span></a>
+    </div>
+    <p class="muted">All releases are on <a href="https://github.com/Doridian/WidgetWorkshop/releases" rel="noopener">GitHub</a>.
+      The macOS app is signed ad hoc only: open it the first time with a right click, <em>Open</em>.</p>
+  </section>
+
+  <section class="card">
+    <h2>What's in it</h2>
+    <ul class="features">
+      <li>The editor: the parts tray, wiring, the worksheets, undo, the parts' own settings dialogs.</li>
+      <li>The parts run as in the original: logic, numbers, science, sound and time, input and output.</li>
+      <li>The puzzles, saving and loading widgets in the original's <code>.WGT</code> format, and the help.</li>
+      <li>Sound, and recording through the microphone.</li>
+      <li>A resizable window with scaling, in the browser with WebGPU or WebGL2.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>About</h2>
+    <p>This is a non-matching decompilation of <code>WIDGET.EXE</code>, rewritten in Rust: it behaves like the original
+      but doesn't share its code. The source is on <a href="https://github.com/Doridian/WidgetWorkshop" rel="noopener">GitHub</a>,
+      and its <a href="https://github.com/Doridian/WidgetWorkshop/blob/main/docs/web.md" rel="noopener">browser notes</a>
+      list the page's options.</p>
+  </section>
+
+  <footer>
+    An unofficial port of the 1995 Maxis game. Widget Workshop is a trademark of its owners; no game data is included.
+  </footer>
+</main>
+</body>
+</html>
