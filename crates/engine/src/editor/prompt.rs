@@ -7,13 +7,15 @@ use crate::gfx::{IRect, Surface};
 
 use super::ui;
 
-/// A message box's answer (`IDOK`, `IDCANCEL`, `IDYES`, `IDNO`).
+/// A message box's answer (`IDOK`, `IDCANCEL`, `IDYES`, `IDNO`,
+/// `IDRETRY`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answer {
     Ok,
     Cancel,
     Yes,
     No,
+    Retry,
 }
 
 impl Answer {
@@ -23,6 +25,7 @@ impl Answer {
             Answer::Cancel => "Cancel",
             Answer::Yes => "&Yes",
             Answer::No => "&No",
+            Answer::Retry => "&Retry",
         }
     }
 }

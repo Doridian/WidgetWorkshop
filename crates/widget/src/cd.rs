@@ -50,7 +50,8 @@ fn extension(m: Module, typ: u32) -> &'static str {
 }
 
 /// Writes every resource of `assets` under `dir` as
-/// `<MODULE>/<type>/<id>.<ext>`, and the puzzle file as `WIDGET.PZL`;
+/// `<MODULE>/<type>/<id>.<ext>`, the puzzle file as `WIDGET.PZL` and the
+/// help file as `WIDGET.HLP`;
 /// returns how many files.
 ///
 /// # Errors
@@ -66,6 +67,11 @@ pub fn export(assets: &Assets, dir: &Path) -> io::Result<usize> {
     if let Some(p) = &assets.puzzles {
         std::fs::create_dir_all(dir)?;
         std::fs::write(dir.join(engine::assets::PUZZLE_FILE), p)?;
+        n += 1;
+    }
+    if let Some(h) = &assets.help {
+        std::fs::create_dir_all(dir)?;
+        std::fs::write(dir.join(engine::assets::HELP_FILE), h)?;
         n += 1;
     }
     Ok(n)

@@ -536,3 +536,136 @@ fn sound_switch_hears_the_microphone() {
     assert!(e.doc.gadgets[g].core.state);
     e.stop();
 }
+
+/// A click at `p`, then past the double-click time.
+fn click(e: &mut Editor, p: (i32, i32)) {
+    e.mouse_move(p.0, p.1);
+    e.mouse_down(p.0, p.1, Button::Left);
+    e.mouse_up(p.0, p.1, Button::Left);
+    e.update(600, (0, 0, 0));
+}
+
+fn help_title(e: &Editor) -> Option<String> {
+    e.help.as_ref().map(|h| h.topic().title.clone())
+}
+
+/// Clicks the help window's hotspot to `title`.
+fn click_hotspot(e: &mut Editor, title: &str) {
+    let h = e.help.as_ref().unwrap();
+    let (r, _) = h
+        .hotspots(&e.assets)
+        .into_iter()
+        .find(|(_, t)| t == title)
+        .unwrap_or_else(|| panic!("no hotspot to {title}"));
+    // The hand over it.
+    let p = (i32::midpoint(r.x0, r.x1), i32::midpoint(r.y0, r.y1));
+    e.mouse_move(p.0, p.1);
+    assert_eq!(e.pointer(), Pointer::Game(6));
+    click(e, p);
+}
+
+fn click_help_button(e: &mut Editor, b: usize) {
+    let p = e.help.as_ref().unwrap().button_centre(&e.assets, b);
+    click(e, p);
+}
+
+#[test]
+fn help_opens_jumps_goes_back_and_browses() {
+    let Some(mut e) = editor() else { return };
+    if e.assets.help.is_none() {
+        return;
+    }
+    // F1 is the accelerator of Help ▸ Contents.
+    e.key_down(0x70);
+    e.key_up(0x70);
+    assert_eq!(help_title(&e).as_deref(), Some("Help Contents"));
+    assert_eq!(e.help.as_ref().unwrap().title(), "Widget Workshop");
+    e.draw();
+    // Ten jumps on the contents page.
+    assert_eq!(e.help.as_ref().unwrap().hotspots(&e.assets).len(), 10);
+    click_hotspot(&mut e, "The Widget Screen");
+    assert_eq!(help_title(&e).as_deref(), Some("The Widget Screen"));
+    e.draw();
+    // `>>` follows the browse sequence, Back retraces the steps.
+    click_help_button(&mut e, help::B_NEXT);
+    assert_eq!(help_title(&e).as_deref(), Some("The Control Box"));
+    click_help_button(&mut e, help::B_BACK);
+    assert_eq!(help_title(&e).as_deref(), Some("The Widget Screen"));
+    click_help_button(&mut e, help::B_PREV);
+    // The first of its sequence: `<<` is greyed and does nothing.
+    assert_eq!(help_title(&e).as_deref(), Some("The Widget Screen"));
+    click_help_button(&mut e, help::B_BACK);
+    assert_eq!(help_title(&e).as_deref(), Some("Help Contents"));
+    // Back with nothing to go back to stays.
+    click_help_button(&mut e, help::B_BACK);
+    assert_eq!(help_title(&e).as_deref(), Some("Help Contents"));
+    // A click on the game gives it the keyboard; F1 brings the help
+    // back to its contents.
+    click_hotspot(&mut e, "The Menus");
+    click(&mut e, (40, 400));
+    assert!(!e.help.as_ref().unwrap().active);
+    e.command(cmd::CONTENTS);
+    assert!(e.help.as_ref().unwrap().active);
+    assert_eq!(help_title(&e).as_deref(), Some("Help Contents"));
+    // Esc closes it.
+    e.key_down(VK_ESCAPE);
+    assert!(e.help.is_none());
+}
+
+#[test]
+fn help_index_shows_the_topic() {
+    let Some(mut e) = editor() else { return };
+    if e.assets.help.is_none() {
+        return;
+    }
+    e.command(cmd::CONTENTS);
+    click_help_button(&mut e, help::B_INDEX);
+    assert!(e.help.as_ref().unwrap().index_open());
+    e.draw();
+    // Typing finds the keyword; Enter is Display.
+    for k in *b"THE TO" {
+        e.key_down(u16::from(k));
+    }
+    e.key_down(VK_RETURN);
+    let h = e.help.as_ref().unwrap();
+    assert!(!h.index_open());
+    assert_eq!(h.topic().title, "The Tooltray");
+    // Esc cancels it.
+    click_help_button(&mut e, help::B_INDEX);
+    e.key_down(VK_ESCAPE);
+    assert!(!e.help.as_ref().unwrap().index_open());
+    assert_eq!(help_title(&e).as_deref(), Some("The Tooltray"));
+}
+
+#[test]
+fn help_missing_asks_to_retry() {
+    let Some(mut e) = editor() else { return };
+    e.assets.help = None;
+    e.command(cmd::CONTENTS);
+    assert_eq!(prompt_text(&e).as_deref(), Some(help::MISSING));
+    // Retry looks again (and asks again); Cancel gives up.
+    e.key_down(VK_RETURN);
+    assert_eq!(prompt_text(&e).as_deref(), Some(help::MISSING));
+    e.key_down(VK_ESCAPE);
+    assert!(e.prompt.is_none() && e.help.is_none());
+}
+
+#[test]
+fn help_text_wraps_in_the_pane() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../orig");
+    let Ok(assets) = Assets::load(Some(&Dir(root)), None) else {
+        return;
+    };
+    if assets.help.is_none() {
+        return;
+    }
+    // A narrow desktop: the window is all of it.
+    let mut e = Editor::new(assets, Document::new(), 400, 600);
+    e.command(cmd::CONTENTS);
+    click_hotspot(&mut e, "Widget Troubleshooting");
+    let (pane, ends) = e.help.as_ref().unwrap().pane_and_extents(&e.assets);
+    assert!(pane < 400);
+    assert!(ends.len() > 300);
+    assert!(ends.iter().all(|&x| x <= pane - 8), "{pane}: {ends:?}");
+    e.draw();
+}

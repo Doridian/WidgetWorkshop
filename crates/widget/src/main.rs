@@ -34,7 +34,7 @@ const USAGE: &str = "usage: widget [--overrides=DIR] [--export=DIR] [--no-audio]
   WIDGET.WGT       a widget to open
   --overrides=DIR  resources that replace or add to the CD's:
                    DIR/<MODULE>/<type>/<id>.<ext>, fonts in DIR/fonts,
-                   puzzles in DIR/WIDGET.PZL
+                   puzzles in DIR/WIDGET.PZL, help in DIR/WIDGET.HLP
   --export=DIR     write every resource to DIR in that layout and quit
   --no-audio       no sound
   --window-size=WxH, --fullscreen, --windowed, --ui-scale=N

@@ -12,7 +12,8 @@
 //! knots, 1020 texts, ...); the extension doesn't matter (`.hr`, `.wav`,
 //! `.txt`, `.bin`). `widget --export DIR` writes every resource in this
 //! layout, a starting point for new art. Fonts are `fonts/*.FON`, and a
-//! `WIDGET.PZL` at the top replaces the CD's puzzles.
+//! `WIDGET.PZL` or `WIDGET.HLP` at the top replaces the CD's puzzles or
+//! help.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -87,6 +88,9 @@ pub const GAME_DIRS: [&str; 4] = ["WIN95/WIDGET", "WIN31/WIDGET", "WIDGET", ""];
 /// The puzzle file, next to `WIDGET.EXE` (`0x42d3fc`), or at the top of
 /// the overrides.
 pub const PUZZLE_FILE: &str = "WIDGET.PZL";
+/// The help file, next to `WIDGET.EXE` with its base name (`0x4333f5`),
+/// or at the top of the overrides.
+pub const HELP_FILE: &str = "WIDGET.HLP";
 /// The stand-alone widgets' runtime, beside the game (`0x4165a7`).
 pub const RUNTIME_FILE: &str = "WIDGET.SLF";
 /// The Windows 3.1 bitmap fonts the CD carries for its own setup.
@@ -130,6 +134,9 @@ pub struct Assets {
     /// The puzzle file (`WIDGET.PZL`, `formats::pzl`), if found: the
     /// overrides', else the CD's.
     pub puzzles: Option<Vec<u8>>,
+    /// The help file (`WIDGET.HLP`, `formats::hlp`), if found: the
+    /// overrides', else the CD's. Parsed when Help opens.
+    pub help: Option<Vec<u8>>,
     /// The stand-alone widgets' runtime (`WIDGET.SLF`, packed), if found.
     pub runtime: Option<Vec<u8>>,
     /// The sounds made from resources so far.
@@ -194,6 +201,7 @@ impl Assets {
             }
         }
         self.puzzles = cd.read(&join(dir, PUZZLE_FILE));
+        self.help = cd.read(&join(dir, HELP_FILE));
         self.runtime = cd.read(&join(dir, RUNTIME_FILE));
         Ok(())
     }
@@ -201,6 +209,9 @@ impl Assets {
     fn load_overrides(&mut self, o: &dyn Source) {
         if let Some(b) = o.read(PUZZLE_FILE) {
             self.puzzles = Some(b);
+        }
+        if let Some(b) = o.read(HELP_FILE) {
+            self.help = Some(b);
         }
         for m in Module::ALL {
             for typ in o.list(m.dir()) {

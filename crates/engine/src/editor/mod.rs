@@ -12,6 +12,7 @@ pub mod about;
 pub mod dialog;
 mod file;
 pub mod file_dialog;
+pub mod help;
 pub mod menu;
 pub mod prompt;
 mod puzzle;
@@ -171,6 +172,8 @@ enum Drag {
     Menu,
     /// The mouse went down on a box or dialog.
     Modal,
+    /// The mouse went down on the help window.
+    Help,
 }
 
 /// What follows a message box's answer.
@@ -198,6 +201,8 @@ enum Then {
     ResetPuzzles,
     /// The wave file to import into Recorder `g`.
     ImportWav(usize),
+    /// "Can't find help file": Retry looks again.
+    HelpMissing,
 }
 
 /// What comes after the "Save changes?" question.
@@ -251,6 +256,10 @@ pub struct Editor {
     prompt: Option<(Prompt, Then)>,
     dialog: Option<Dialog>,
     about: Option<about::About>,
+    /// The help window (`WinHelp`'s, a window of its own in the original)
+    /// and where it was when last closed.
+    help: Option<help::Help>,
+    help_at: Option<IRect>,
     cursors: Vec<Option<CursorPic>>,
     title: String,
     /// The puzzle loaded (`cPuzzle`) and the Load Puzzle dialog.
@@ -326,6 +335,8 @@ impl Editor {
             prompt: None,
             dialog: None,
             about: None,
+            help: None,
+            help_at: None,
             cursors,
             title: String::new(),
             puzzle: Current::default(),
@@ -349,6 +360,10 @@ impl Editor {
     /// The desktop is now `width` × `height`.
     pub fn resize(&mut self, width: u32, height: u32) {
         self.surface.resize(width, height);
+        let area = self.worksheet();
+        if let Some(h) = &mut self.help {
+            h.fit(area);
+        }
     }
 
     #[must_use]
@@ -436,6 +451,7 @@ impl Editor {
             || self.puzzle_dialog.is_some()
             || self.about.is_some()
             || self.menu.covers(&self.assets, p)
+            || self.help.as_ref().is_some_and(|h| h.contains(p))
         {
             return false;
         }
@@ -528,6 +544,9 @@ impl Editor {
     pub fn update(&mut self, ms: u64, local_time: (u32, u32, u32)) {
         self.now += ms;
         self.env.local_time = local_time;
+        if let Some(h) = &mut self.help {
+            h.tick(&self.assets, self.now);
+        }
         if self.recording.is_some() {
             self.poll_recording();
         }
@@ -881,6 +900,11 @@ impl Editor {
                     self.import_path(&p);
                 }
             }
+            Then::HelpMissing => {
+                if a == Answer::Retry {
+                    self.open_help();
+                }
+            }
         }
     }
 
@@ -972,13 +996,39 @@ impl Editor {
             cmd::LOAD_PUZZLE => self.confirm_save(Next::LoadPuzzle),
             cmd::IMPORT => self.confirm_save(Next::Import),
             cmd::SAVE_INTO => self.save_into(),
-            cmd::CONTENTS => {
-                self.message("Not available in this version yet.", &[Answer::Ok], Then::Nothing);
-            }
+            cmd::CONTENTS => self.open_help(),
             // Printing: nothing to print to.
             _ => {}
         }
         self.update_menu();
+    }
+
+    /// Help ▸ Contents (`0x4333f5`): `WinHelp(HELP_CONTENTS)` on
+    /// `WIDGET.HLP`, which opens the help window on the contents topic (or
+    /// brings it back there); while the file isn't there, "Can't find help
+    /// file" with Retry and Cancel. A file that doesn't parse gets the same
+    /// message.
+    ///
+    /// The window lives beside the game as `WinHelp`'s does: the game runs
+    /// on, a click on either gives it the keyboard. It stays on top (there's
+    /// no other way back to it) and below the menu bar.
+    fn open_help(&mut self) {
+        if let Some(h) = &mut self.help {
+            h.contents();
+            return;
+        }
+        match self.assets.help.as_deref().map(formats::hlp::HelpFile::parse) {
+            Some(Ok(file)) => {
+                self.help = Some(help::Help::new(&self.assets, file, self.worksheet(), self.help_at));
+            }
+            _ => self.message(help::MISSING, &[Answer::Retry, Answer::Cancel], Then::HelpMissing),
+        }
+    }
+
+    fn close_help(&mut self) {
+        if let Some(h) = self.help.take() {
+            self.help_at = Some(h.placement());
+        }
     }
 
     /// Edit ▸ Clear Work Area (`0x425cda`); no dirty flag, as the original.
@@ -1037,6 +1087,13 @@ impl Editor {
         }
         if let Some(d) = &mut self.puzzle_dialog {
             d.mouse_move((x, y));
+        }
+        if matches!(self.drag, Some(Drag::Help)) {
+            let area = self.worksheet();
+            if let Some(h) = &mut self.help {
+                h.mouse_move(&self.assets, area, (x, y));
+            }
+            return;
         }
         let Some(drag) = self.drag.take() else {
             if self.menu.is_open() {
@@ -1149,7 +1206,7 @@ impl Editor {
                 self.menu.mouse_move(&self.assets, self.mouse);
                 Drag::Menu
             }
-            d @ (Drag::Press(_) | Drag::Modal) => d,
+            d @ (Drag::Press(_) | Drag::Modal | Drag::Help) => d,
         }
     }
 
@@ -1224,8 +1281,20 @@ impl Editor {
             return;
         }
         if self.menu.mouse_down(&self.assets, (x, y)) != Outcome::Ignored {
+            if let Some(h) = &mut self.help {
+                h.active = false;
+            }
             self.drag = Some(Drag::Menu);
             return;
+        }
+        let area = self.worksheet();
+        if let Some(h) = &mut self.help {
+            if h.contains((x, y)) {
+                h.mouse_down(&self.assets, area, (x, y), dbl);
+                self.drag = Some(Drag::Help);
+                return;
+            }
+            h.active = false;
         }
         if let Some(w) = self.bar_at(p) {
             self.toolbar_down(w, p);
@@ -1590,6 +1659,14 @@ impl Editor {
                 }
             }
             Drag::Modal => self.modal_up(x, y),
+            Drag::Help => {
+                let area = self.worksheet();
+                if let Some(h) = &mut self.help
+                    && h.mouse_up(&self.assets, area, (x, y)) == help::Outcome::Closed
+                {
+                    self.close_help();
+                }
+            }
         }
     }
 
@@ -1611,9 +1688,18 @@ impl Editor {
         }
     }
 
-    /// The wheel scrolls the puzzle list; the worksheet doesn't scroll.
+    /// The wheel scrolls the puzzle list or the help window under the
+    /// pointer; the worksheet doesn't scroll.
     pub fn wheel(&mut self, _dx: i32, dy: i32) {
         if self.prompt.is_some() {
+            return;
+        }
+        if self.file_dialog.is_none()
+            && self.puzzle_dialog.is_none()
+            && let Some(h) = &mut self.help
+            && h.contains(self.mouse)
+        {
+            h.wheel(&self.assets, dy);
             return;
         }
         if let Some((d, _)) = &mut self.file_dialog {
@@ -1719,6 +1805,15 @@ impl Editor {
         if let Some(d) = &mut self.puzzle_dialog {
             let o = d.key(vk);
             self.puzzle_outcome(o);
+            return;
+        }
+        if let Some(h) = &mut self.help
+            && h.active
+            && !self.menu.is_open()
+        {
+            if h.key(&self.assets, vk, self.shift) == help::Outcome::Closed {
+                self.close_help();
+            }
             return;
         }
         if self.menu.is_open() {
@@ -1861,6 +1956,7 @@ impl Editor {
                     && self.file_dialog.is_none()
                     && self.puzzle_dialog.is_none()
                     && self.drag.is_none()
+                    && !self.help.as_ref().is_some_and(|h| h.active)
                 {
                     self.menu.activate();
                 }
@@ -1888,8 +1984,15 @@ impl Editor {
                 Drag::NewWire { .. } | Drag::WireEnd { .. } => Pointer::Game(2),
                 Drag::Pan { .. } => Pointer::Game(4),
                 Drag::Place { .. } => Pointer::Game(6),
-                Drag::Bar { .. } | Drag::Press(_) | Drag::Menu | Drag::Modal => Pointer::Arrow,
+                Drag::Bar { .. } | Drag::Press(_) | Drag::Menu | Drag::Modal | Drag::Help => Pointer::Arrow,
             };
+        }
+        if let Some(h) = &self.help
+            && h.contains(self.mouse)
+            && !self.menu.covers(&self.assets, self.mouse)
+            && self.prompt.is_none()
+        {
+            return h.pointer(&self.assets, self.mouse);
         }
         if !self.over_view(self.mouse) {
             return Pointer::Arrow;
@@ -1987,6 +2090,11 @@ impl Editor {
         }
         s.origin = (0, 0);
         s.set_clip(frame);
+        // `WinHelp`'s window, kept on top of the game's and below its
+        // menu bar (whose menus drop over it).
+        if let Some(h) = &self.help {
+            h.draw(s, &self.assets);
+        }
         self.menu.draw(s, &self.assets, frame.width());
         if let Some(d) = &self.dialog {
             let g = d.gadget.and_then(|g| self.doc.gadgets.get(g));

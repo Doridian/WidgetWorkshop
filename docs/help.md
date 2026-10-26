@@ -47,8 +47,9 @@ written on the developer's machine, `T:\WWWIN95\...`) mentions one. So
 WinHelp 95 opens straight on the contents topic, with no Help Topics
 dialog.
 
-The port: `crates/engine/src/editor/mod.rs` currently answers `0x8010`
-with "Not available in this version yet."
+The port: `crates/engine/src/editor/help.rs` is the viewer of §3, opened
+by `0x8010`/F1 from `editor/mod.rs`. A missing (or unreadable) file gets
+the original's message with Retry and Cancel.
 
 ---
 
@@ -178,7 +179,8 @@ CD's bitmap fonts (`WIN31/SVGA/SSERIFE.FON`: MS Sans Serif 8, 10, 12, 14,
 - Load `WIDGET.HLP` from the game folder (`assets::GAME_DIRS`, like
   `PUZZLE_FILE`) into `Assets`, parsed lazily the first time Help opens.
   If it's missing, show the original's message ("Can't find help
-  file…", §1) with OK, not Retry/Cancel, since nothing can make it appear.
+  file…", §1) with its Retry and Cancel (Retry can't make the file appear:
+  the assets are read at startup).
 - `0x8010`/F1: open (or raise) the help window on `contents_topic()`.
 
 ### 3.2 The window
