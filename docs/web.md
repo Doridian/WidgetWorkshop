@@ -84,6 +84,49 @@ Widgets also come and go as files of the player's (`editor::download`):
 These two items are the port's own (commands `0x9001`, `0x9002`), added
 after Save Into a Stand-Alone Widget only in the browser.
 
+## Widget links
+
+A widget fits in a link (`engine::link`): the page with the widget in
+its fragment, which the browser never sends to the server, so the site
+still never sees a widget.
+
+```
+https://doridian.github.io/WidgetWorkshop/widget.html#n=CLOCK.WGT&w=Ae1a…
+```
+
+`n` is the widget's name (optional, percent-encoded); `w` is base64url,
+without padding, of a format byte and the `.WGT` as Save writes it.
+Format 1 is raw deflate (`miniz_oxide`; `zlib` with `wbits=-15` makes
+the same). A widget's pictures and sounds are the CD's, which whoever
+opens the link has too, so the CD's samples are links of 2 to 23 KB,
+most 3 to 5; each Recorder adds its 40000-sample recording, which
+barely compresses. Browsers take that; chats with a message limit may
+not.
+
+- File ▸ **Copy Link to Widget** puts the link to the widget on the
+  clipboard, as Save would write it, and says how long it is. In the
+  browser the link points at the page it was made on, natively at the
+  site's. It doesn't count as saved; greyed for a puzzle, as Save to
+  Download is.
+- File ▸ **Open Widget Link** (Ctrl+V, Shift+Insert) opens the link on
+  the clipboard as a dropped widget (Save goes to Save As with its
+  name), after "Save changes?". Its command is MFC's `ID_EDIT_PASTE`
+  (`0xe125`), which the CD's accelerators already give those keys and
+  the original left unused. The browser may ask before letting the page
+  read the clipboard; white space in the link (a chat's line breaks) is
+  ignored.
+- Opened with a link as its address, the page opens the widget once the
+  CD is in, as `?MYWIDGET.WGT` does; a link pasted into the address bar
+  of the open page opens too. Natively a link is an argument like a
+  widget's file (`widget CD.iso 'https://…#w=…'`).
+
+The clipboard is `platform::clipboard`: arboard natively (X11, Wayland
+where the compositor offers data control, Windows, macOS),
+`navigator.clipboard` in the browser, which the page only has over
+HTTPS or from `localhost`. Both items are the port's own, on every
+platform, after the download items (natively after Save Into a
+Stand-Alone Widget).
+
 ## Options
 
 The page's query string takes the command line's options without their

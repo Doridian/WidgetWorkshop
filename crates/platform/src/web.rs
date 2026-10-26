@@ -1,7 +1,8 @@
 //! The browser's side of the platform (`wasm32`): the console for what
 //! the port would print on the terminal, the page's status line for
-//! what the player has to see, files dropped onto the page and files
-//! handed to the player as downloads.
+//! what the player has to see, files dropped onto the page, files
+//! handed to the player as downloads, and the clipboard
+//! ([`crate::clipboard`]).
 
 use std::cell::RefCell;
 
@@ -36,6 +37,14 @@ pub fn show_status(text: &str, error: bool) {
 #[must_use]
 pub fn element(id: &str) -> Option<web_sys::Element> {
     web_sys::window()?.document()?.get_element_by_id(id)
+}
+
+/// `navigator.clipboard`, if the page may have it (only over HTTPS or
+/// from `localhost`).
+pub(crate) fn clipboard() -> Option<web_sys::Clipboard> {
+    let navigator = web_sys::window()?.navigator();
+    let c = js_sys::Reflect::get(&navigator, &"clipboard".into()).ok()?;
+    (!c.is_undefined()).then(|| c.unchecked_into())
 }
 
 /// The page's `<canvas id="widget">`, if it has one.

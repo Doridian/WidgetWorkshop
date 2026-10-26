@@ -14,6 +14,7 @@ mod download;
 mod file;
 pub mod file_dialog;
 pub mod help;
+mod links;
 pub mod menu;
 pub mod prompt;
 mod puzzle;
@@ -26,6 +27,7 @@ pub mod ui;
 pub mod worksheet;
 
 pub use download::{Download, Dropped};
+pub use links::Links;
 
 use formats::cursor::Cursor as CursorPic;
 use formats::pe::{RT_CURSOR, RT_GROUP_CURSOR};
@@ -303,6 +305,9 @@ pub struct Editor {
     /// The name of the dropped widget that has no path (the browser's):
     /// the title's, Save As' and Save to Download's.
     drop_name: Option<String>,
+    /// The clipboard, for widget links, and with it the File menu's link
+    /// items ([`Editor::set_links`]).
+    links: Option<links::Links>,
 }
 
 impl Editor {
@@ -374,6 +379,7 @@ impl Editor {
             download: None,
             dropped: None,
             drop_name: None,
+            links: None,
         };
         let limits = e.doc.tray_limits.clone();
         e.tray.apply_limits(&limits);
@@ -971,14 +977,17 @@ impl Editor {
         let mut g = Vec::new();
         if self.running {
             g.extend_from_slice(&menu::RUN_DISABLED);
-            g.extend([cmd::SAVE_DOWNLOAD, cmd::DOWNLOAD]);
+            g.extend([cmd::SAVE_DOWNLOAD, cmd::DOWNLOAD, cmd::COPY_LINK, cmd::PASTE]);
         } else {
             if self.download.is_none() {
                 g.extend([cmd::SAVE_DOWNLOAD, cmd::DOWNLOAD]);
             }
+            if self.links.is_none() {
+                g.extend([cmd::COPY_LINK, cmd::PASTE]);
+            }
             // A puzzle is saved as a widget only by Save As.
             if self.puzzle.active {
-                g.push(cmd::SAVE_DOWNLOAD);
+                g.extend([cmd::SAVE_DOWNLOAD, cmd::COPY_LINK]);
             }
             if !standalone::SAVE_ENABLED {
                 g.push(cmd::SAVE_INTO);
@@ -1056,6 +1065,8 @@ impl Editor {
             cmd::CONTENTS => self.open_help(),
             cmd::SAVE_DOWNLOAD => self.save_download(),
             cmd::DOWNLOAD => self.ask_file(file_dialog::DOWNLOAD_WIDGET, "", Then::DownloadPath),
+            cmd::COPY_LINK => self.copy_link(),
+            cmd::PASTE => self.request_paste(),
             // Printing: nothing to print to.
             _ => {}
         }

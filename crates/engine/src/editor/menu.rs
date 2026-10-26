@@ -49,6 +49,12 @@ pub mod cmd {
     /// Save to Download and Download a Widget.
     pub const SAVE_DOWNLOAD: u16 = 0x9001;
     pub const DOWNLOAD: u16 = 0x9002;
+    /// The port's own (`super::super::links`): File ▸ Copy Link to
+    /// Widget; Open Widget Link is MFC's `ID_EDIT_PASTE`, which the CD's
+    /// accelerators give Ctrl+V and Shift+Insert and the original left
+    /// unused.
+    pub const COPY_LINK: u16 = 0x9003;
+    pub const PASTE: u16 = 0xe125;
 }
 
 /// The items `Menu_UpdateForRunState` (`0x414b7e`) greys while running.
@@ -169,25 +175,46 @@ impl Menu {
     /// Adds the port's download items to the File menu, after Save Into
     /// a Stand-Alone Widget (or at its end).
     pub fn add_downloads(&mut self) {
+        self.add_file_items(
+            &[cmd::SAVE_INTO],
+            &[
+                (cmd::SAVE_DOWNLOAD, "Save to Do&wnload"),
+                (cmd::DOWNLOAD, "&Download a Widget..."),
+            ],
+        );
+    }
+
+    /// Adds the port's link items to the File menu, after the download
+    /// items or Save Into a Stand-Alone Widget (or at its end).
+    pub fn add_links(&mut self) {
+        self.add_file_items(
+            &[cmd::DOWNLOAD, cmd::SAVE_INTO],
+            &[
+                (cmd::PASTE, "Open Widget &Link\tCtrl+V"),
+                (cmd::COPY_LINK, "Copy Lin&k to Widget"),
+            ],
+        );
+    }
+
+    /// Adds `new` to the File menu after the first of `after` there.
+    fn add_file_items(&mut self, after: &[u16], new: &[(u16, &str)]) {
         let Some(MenuItem::Popup { items, .. }) = self.items.first_mut() else {
             return;
         };
-        let at = items
+        let at = after
             .iter()
-            .position(|i| matches!(i, MenuItem::Command { id: cmd::SAVE_INTO, .. }))
+            .find_map(|&a| {
+                items
+                    .iter()
+                    .position(|i| matches!(i, MenuItem::Command { id, .. } if *id == a))
+            })
             .map_or(items.len(), |i| i + 1);
-        let item = |id, text: &str| MenuItem::Command {
+        let new = new.iter().map(|&(id, text)| MenuItem::Command {
             id,
             text: text.to_owned(),
             flags: 0,
-        };
-        items.splice(
-            at..at,
-            [
-                item(cmd::SAVE_DOWNLOAD, "Save to Do&wnload"),
-                item(cmd::DOWNLOAD, "&Download a Widget..."),
-            ],
-        );
+        });
+        items.splice(at..at, new);
     }
 
     #[must_use]

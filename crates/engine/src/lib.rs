@@ -9,6 +9,7 @@ pub mod files;
 pub mod gadget;
 pub mod gadgets;
 pub mod gfx;
+pub mod link;
 pub mod puzzle;
 pub mod sim;
 pub mod text;
