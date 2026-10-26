@@ -192,6 +192,16 @@ that react to keys (Key Press `Key_` 0x448da7, Stopper 0x457ba2) poll
 `cKeyboard::IsKeyDown` = `GetKeyState`. While an input tool is active all
 keys are swallowed.
 
+**Space** has no meaning to the editor (the About box's "Space closes" is
+its own). The only accelerator table (RT_ACCELERATOR 2, applied by the
+frame's `PreTranslateMessage` 0x475a57 → `TranslateAccelerator`) holds
+Ctrl+N/O/S/Z/X/C/V/P, F1 (0x8010, Help Contents), Alt+Backspace (undo), Shift+Del,
+Ctrl+Ins, Shift+Ins, F6 / Shift+F6 (0xe150/0xe151, next/previous pane);
+the view's window procedure (0x434600) diverts keys only to an active
+input tool; and `KeyDown` above knows only Enter (GO) and Esc (STOP). So
+Space while running reaches nothing but the parts that poll it (a Key
+Press set to Space), and while editing does nothing.
+
 ### 2.4 Tools and cursors
 
 Tools are a radio group on the tray pane (`DAT_004a2864`): buttons at

@@ -170,6 +170,29 @@ fn running_takes_clicks_and_keys_only() {
     assert!(e.tray.bar.visible);
 }
 
+/// The original has no Space key for GO / STOP (accelerator table 2 and
+/// the view's keys, `0x42385d`, only know Enter and Esc), so a Keypress
+/// set to Space just sees it, polled, while running.
+#[test]
+fn space_is_only_a_key_for_the_parts() {
+    let Some(mut e) = editor() else { return };
+    let g = add(&mut e, *b"Key_", 300, 300);
+    e.doc.gadgets[g].core.settings.text[0] = b' ';
+    e.key_down(0x20);
+    e.key_up(0x20);
+    assert!(!e.running, "Space doesn't start");
+    e.key_down(0x0d);
+    e.key_up(0x0d);
+    assert!(e.running);
+    e.key_down(0x20);
+    e.update(100, (0, 0, 0));
+    assert!(e.running, "Space doesn't stop");
+    assert!(e.doc.gadgets[g].core.state);
+    e.key_up(0x20);
+    e.update(100, (0, 0, 0));
+    assert!(!e.doc.gadgets[g].core.state);
+}
+
 #[test]
 fn parts_come_from_the_tray_and_go_back() {
     let Some(mut e) = editor() else { return };

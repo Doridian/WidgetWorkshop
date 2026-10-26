@@ -272,7 +272,13 @@ impl Editor {
             pictures,
             surface: Surface::new(width, height),
             running: false,
-            env: Env::default(),
+            // Off the frame until the mouse first moves, so the Win / Lose
+            // Checker's cheat doesn't see (0, 0) before it's been there.
+            env: {
+                let mut env = Env::default();
+                env.cursor_screen = (-1, -1);
+                env
+            },
             ms_rest: 0,
             now: 0,
             finished: false,

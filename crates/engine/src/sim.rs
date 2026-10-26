@@ -148,9 +148,10 @@ pub struct Env {
     /// mouse (`0x415208`) take the left or the right button alike.
     pub right_down: bool,
     /// The cursor in screen pixels (`h`, `v`; `GetCursorPos`, `0x4153ac`),
-    /// wherever it is. The Mouse Distance Measurer (`MsMv`) measures this;
-    /// only differences matter, so any fixed origin will do as long as it
-    /// doesn't move with scrolling.
+    /// wherever it is. The Mouse Distance Measurer (`MsMv`) measures this
+    /// (only differences matter); the Win / Lose Checker's cheat wants
+    /// exactly (0, 0), the screen's top-left pixel, which is the frame's
+    /// (the emulated desktop's) origin here.
     pub cursor_screen: (i32, i32),
     /// The RTL's 64-bit `lrand` state (`0x4a198c`, docs/gadgets/logic.md
     /// 1.9), which every random part draws from; the game seeds it with

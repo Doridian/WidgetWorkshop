@@ -363,10 +363,24 @@ impl Behavior for Stopper {
     /// the tick, which holds up every other part and the editor until the
     /// run ends; here each tick is one pass of that loop, with
     /// [`crate::sim::Env::exclusive`] holding up the rest.
-    // TODO: the cheat (the mouse at the screen's top left with W, I and N
-    // held) triggers it too; the editor doesn't report held keys yet.
+    ///
+    /// First, every tick, wired or not, the cheat: the cursor on the
+    /// screen's top-left pixel (`GetCursorPos` `0x4153ac`, both
+    /// coordinates as `i16` exactly 0) with W, I and N all held
+    /// (`0x41507c`, `GetKeyState < 0`) sets `+0x197`. That is before
+    /// `was` is read, so there is no trigger sound and the end loop runs
+    /// at once; `+0x198` stays stale (0 or an earlier trigger's absolute
+    /// `clock()`), long past, so every pass advances a frame and the
+    /// run ends after 8 ticks, solving the puzzle if "Win sound" is set.
     #[allow(clippy::float_cmp)]
     fn tick(&mut self, core: &mut Core, io: &mut Io<'_>) {
+        if io.env.cursor_screen == (0, 0) && b"WIN".iter().all(|&k| io.env.key_held(u16::from(k))) {
+            if !self.triggered {
+                // Long enough ago for every frame (the stale `+0x198`).
+                self.triggered_at = io.elapsed().wrapping_sub(u32::MAX / 2);
+            }
+            self.triggered = true;
+        }
         let was = self.triggered;
         if !io.wired(core, 0) {
             return;
@@ -714,5 +728,49 @@ mod tests {
         b.start(s.as_mut());
         b.tick_at(s.as_mut(), 0);
         assert_eq!(b.core.phase, 0);
+    }
+
+    #[test]
+    fn stopper_cheat() {
+        let win = || b"WIN".map(u16::from).to_vec();
+        // Not quite: one pixel off the corner, or a key missing.
+        let (mut b, mut s) = stopper_bench(Source::boolean(false));
+        b.start(s.as_mut());
+        b.env.keys_held = win();
+        b.env.cursor_screen = (1, 0);
+        b.tick_at(s.as_mut(), 0);
+        b.env.cursor_screen = (0, 0);
+        b.env.keys_held.pop();
+        b.tick_at(s.as_mut(), 1);
+        assert_eq!((b.core.phase, b.env.exclusive), (0, None));
+        // All three at the top left: the end starts on this very tick,
+        // without the trigger sound, a frame a tick.
+        b.env.keys_held = win();
+        b.env.sounds.clear();
+        b.tick_at(s.as_mut(), 2);
+        assert_eq!((b.core.phase, b.env.exclusive), (1, Some(1)));
+        assert_eq!(b.env.sounds.len(), 0);
+        let mut t = 2;
+        while b.env.end_run.is_none() {
+            t += 1;
+            b.tick_at(s.as_mut(), t);
+        }
+        assert_eq!(t, 2 + 7);
+        assert_eq!(
+            b.env.end_run,
+            Some(RunEnd {
+                solved: true,
+                sound: 128
+            })
+        );
+
+        // Unwired: it sets the flag, but nothing happens.
+        let mut s = stopper();
+        let mut b = Bench::with_knots(&[Input]);
+        b.fresh(s.as_mut());
+        b.start(s.as_mut());
+        b.env.keys_held = win();
+        b.tick_at(s.as_mut(), 0);
+        assert_eq!((b.core.phase, b.env.exclusive), (0, None));
     }
 }
