@@ -55,13 +55,43 @@ pub struct Env {
     pub mouse_down: bool,
     /// Keys pressed since the last tick (Windows virtual-key codes).
     pub keys: Vec<u16>,
-    /// The random generator's state.
-    pub seed: u32,
+    /// Keys held down right now (Windows virtual-key codes), as parts poll
+    /// them with `GetKeyState` (`0x41507c`): a key counts only while a tick
+    /// sees it down. The Keypress (`Key_`) reads this.
+    pub keys_held: Vec<u16>,
+    /// Whether the right mouse button is down. The parts that poll the
+    /// mouse (`0x415208`) take the left or the right button alike.
+    pub right_down: bool,
+    /// The cursor in screen pixels (`h`, `v`; `GetCursorPos`, `0x4153ac`),
+    /// wherever it is. The Mouse Distance Measurer (`MsMv`) measures this;
+    /// only differences matter, so any fixed origin will do as long as it
+    /// doesn't move with scrolling.
+    pub cursor_screen: (i32, i32),
+    /// The RTL's 64-bit `lrand` state (`0x4a198c`, docs/gadgets/logic.md
+    /// 1.9), which every random part draws from; the game seeds it with
+    /// the time at start-up (`0x415018`).
+    pub rng: u64,
     /// Sound requests for the platform, in order.
     pub sounds: Vec<SoundCmd>,
     next_voice: u64,
     /// Wall-clock local time: hours, minutes, seconds (for the clock).
     pub local_time: (u32, u32, u32),
+    /// The gadget (by id) playing an animation that holds up the rest of
+    /// the widget: while set, it alone ticks (the Win / Lose Checker's end
+    /// loop, `0x457ba2`, which the original runs without returning).
+    pub exclusive: Option<u32>,
+    /// Set by a gadget to end the run (`0x430ee7`): the tick stops there
+    /// and the editor leaves run mode.
+    pub end_run: Option<RunEnd>,
+}
+
+/// How a gadget ended the run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RunEnd {
+    /// The current puzzle is solved (`0x42d4b1`).
+    pub solved: bool,
+    /// The sound (WWSOUND type 1006) to play once stopped.
+    pub sound: u32,
 }
 
 impl Env {
@@ -69,6 +99,18 @@ impl Env {
     pub fn voice(&mut self) -> u64 {
         self.next_voice += 1;
         self.next_voice
+    }
+
+    /// Whether the left or the right mouse button is down (`0x415208`).
+    #[must_use]
+    pub fn any_button(&self) -> bool {
+        self.mouse_down || self.right_down
+    }
+
+    /// Whether virtual key `vk` is held (`GetKeyState(vk) < 0`).
+    #[must_use]
+    pub fn key_held(&self, vk: u16) -> bool {
+        self.keys_held.contains(&vk)
     }
 }
 
@@ -87,12 +129,17 @@ impl Io<'_> {
     /// gives, or [`Value::None`] unwired.
     #[must_use]
     pub fn input(&self, core: &Core, knot: usize) -> Value {
-        let Some(w) = core.knots.get(knot).and_then(|k| k.wire) else {
-            return Value::None;
-        };
-        let Some(wire) = self.wires.get(w) else {
-            return Value::None;
-        };
+        match self.source(core, knot) {
+            Some((g, k)) => g.behavior.output(&g.core, k),
+            None => Value::None,
+        }
+    }
+
+    /// The gadget at the other end of input `knot`'s wire, and its knot
+    /// there (the wire's `+0`, `+8`).
+    #[must_use]
+    pub fn source(&self, core: &Core, knot: usize) -> Option<(&Gadget, usize)> {
+        let wire = self.wires.get(core.knots.get(knot)?.wire?)?;
         // The gadget reading is `wire.to`; its source `wire.from`. A wire
         // drawn the other way round (two outputs, two inputs) reads the
         // other end.
@@ -101,10 +148,7 @@ impl Io<'_> {
         } else {
             (wire.to, wire.to_knot)
         };
-        match self.gadgets.get(src) {
-            Some(g) => g.behavior.output(&g.core, src_knot),
-            None => Value::None,
-        }
+        Some((self.gadgets.get(src)?, src_knot))
     }
 
     /// Whether gadget `i` is the one running (taken out of the list: its

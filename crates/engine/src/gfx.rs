@@ -240,6 +240,61 @@ impl Surface {
         }
     }
 
+    /// The part `src` of `img` (in its pixels) with its top left at `x`,
+    /// `y`; transparent pixels are skipped (`BitBlt` of a sheet's area).
+    pub fn blit_part(&mut self, img: &Image, src: IRect, x: i32, y: i32) {
+        let src = src.intersect(IRect::new(0, 0, i32::from(img.width), i32::from(img.height)));
+        let dst = IRect::sized(x, y, src.width(), src.height())
+            .offset(self.origin.0, self.origin.1)
+            .intersect(self.clip);
+        if dst.is_empty() || src.is_empty() {
+            return;
+        }
+        let (dx, dy) = (src.x0 - x - self.origin.0, src.y0 - y - self.origin.1);
+        let w = i32::from(img.width);
+        for sy in dst.y0..dst.y1 {
+            for sx in dst.x0..dst.x1 {
+                #[allow(clippy::cast_sign_loss)]
+                let i = ((sy + dy) * w + sx + dx) as usize;
+                if img.opaque[i] {
+                    #[allow(clippy::cast_sign_loss)]
+                    let d = (sy * self.width + sx) as usize;
+                    self.pixels[d] = img.pixels[i];
+                }
+            }
+        }
+    }
+
+    /// One pixel.
+    pub fn pset(&mut self, x: i32, y: i32, c: u8) {
+        self.put(x, y, c);
+    }
+
+    /// Inverts `r` (`PatBlt(PATINVERT)` with a black brush on the 8-bit
+    /// display: the system palette is laid out so that index `^ 0xff` is
+    /// the inverse colour).
+    pub fn invert(&mut self, r: IRect) {
+        let r = r.offset(self.origin.0, self.origin.1).intersect(self.clip);
+        for y in r.y0..r.y1 {
+            for x in r.x0..r.x1 {
+                #[allow(clippy::cast_sign_loss)]
+                let i = (y * self.width + x) as usize;
+                self.pixels[i] ^= 0xff;
+            }
+        }
+    }
+
+    /// Copies `src`'s pixels (all of it) to `x`, `y`.
+    pub fn copy_from(&mut self, src: &Surface, x: i32, y: i32) {
+        for sy in 0..src.height {
+            for sx in 0..src.width {
+                #[allow(clippy::cast_sign_loss)]
+                let c = src.pixels[(sy * src.width + sx) as usize];
+                self.put(x + sx, y + sy, c);
+            }
+        }
+    }
+
     /// `img` stretched or shrunk to fill `r`, nearest neighbour.
     pub fn blit_scaled(&mut self, img: &Image, r: IRect) {
         if r.is_empty() || img.width == 0 || img.height == 0 {

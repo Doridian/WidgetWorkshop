@@ -104,6 +104,41 @@ pub struct Frame<'a> {
     pub overlay: Option<Overlay<'a>>,
     /// The mouse pointer's shape over the window (`Screen.Cursor`).
     pub cursor: Cursor,
+    /// A pointer of the game's own, shown instead of `cursor`.
+    pub cursor_image: Option<CursorImage<'a>>,
+    /// The window's title, if the game sets one.
+    pub title: Option<&'a str>,
+}
+
+/// A pointer picture of the game's own (a Windows cursor resource), shown
+/// as the system's pointer, scaled with the picture.
+#[derive(Debug, Clone, Copy)]
+pub struct CursorImage<'a> {
+    /// Tells pictures apart: the same key is the same picture.
+    pub key: u32,
+    pub width: u16,
+    pub height: u16,
+    /// The hot spot, from the top left.
+    pub hot: (u16, u16),
+    /// RGBA, top row first.
+    pub rgba: &'a [u8],
+}
+
+impl CursorImage<'_> {
+    /// The picture `scale` times as big (nearest neighbour), as RGBA.
+    #[must_use]
+    pub fn scaled(&self, scale: u32) -> Vec<u8> {
+        let scale = scale.max(1) as usize;
+        let (w, h) = (usize::from(self.width), usize::from(self.height));
+        let mut out = Vec::with_capacity(w * h * 4 * scale * scale);
+        for y in 0..h * scale {
+            for x in 0..w * scale {
+                let i = ((y / scale) * w + x / scale) * 4;
+                out.extend_from_slice(self.rgba.get(i..i + 4).unwrap_or(&[0; 4]));
+            }
+        }
+        out
+    }
 }
 
 /// The mouse pointer's shapes the game sets through `Screen.Cursor`
@@ -249,6 +284,58 @@ fn fullscreen_key(code: KeyCode, modifiers: ModifiersState) -> bool {
     }
 }
 
+/// What was last set on the window: the pointer (a system one or the
+/// game's, by key and scale, with the game's made so far) and the title.
+#[derive(Default)]
+struct Shown {
+    cursor: Cursor,
+    custom: Option<(u32, u32)>,
+    custom_cursors: std::collections::HashMap<(u32, u32), winit::window::CustomCursor>,
+    title: String,
+}
+
+impl Shown {
+    /// Sets `frame`'s pointer and title on `w` where they changed.
+    fn update(&mut self, w: &Window, event_loop: &ActiveEventLoop, frame: &Frame<'_>) {
+        if let Some(img) = frame.cursor_image {
+            let v = display::View::new(w.inner_size(), frame.width, frame.height);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let scale = (v.scale.floor() as u32).max(1);
+            let key = (img.key, scale);
+            if self.custom != Some(key) {
+                if let std::collections::hash_map::Entry::Vacant(e) = self.custom_cursors.entry(key) {
+                    let (hx, hy) = img.hot;
+                    let s = u16::try_from(scale).unwrap_or(1);
+                    let source = winit::window::CustomCursor::from_rgba(
+                        img.scaled(scale),
+                        img.width * s,
+                        img.height * s,
+                        hx * s,
+                        hy * s,
+                    );
+                    if let Ok(src) = source {
+                        e.insert(event_loop.create_custom_cursor(src));
+                    }
+                }
+                if let Some(cursor) = self.custom_cursors.get(&key) {
+                    w.set_cursor(cursor.clone());
+                }
+                self.custom = Some(key);
+            }
+        } else if frame.cursor != self.cursor || self.custom.is_some() {
+            self.custom = None;
+            self.cursor = frame.cursor;
+            w.set_cursor(frame.cursor.icon());
+        }
+        if let Some(t) = frame.title
+            && t != self.title
+        {
+            t.clone_into(&mut self.title);
+            w.set_title(t);
+        }
+    }
+}
+
 struct Runner<A> {
     app: A,
     title: String,
@@ -268,8 +355,8 @@ struct Runner<A> {
     /// What the settings file gets at the end: the windowed size and
     /// position, and whether the window is fullscreen.
     remembered: WindowSettings,
-    /// The pointer last set on the window.
-    cursor: Cursor,
+    /// The pointer and the title last set on the window.
+    shown: Shown,
     /// The browser's window while its GPU is being set up, and where the
     /// display comes when it is.
     #[cfg(target_arch = "wasm32")]
@@ -552,10 +639,7 @@ impl<A: App> Runner<A> {
             WindowEvent::RedrawRequested => {
                 if let Some((w, d)) = &mut self.window {
                     let frame = self.app.frame();
-                    if frame.cursor != self.cursor {
-                        self.cursor = frame.cursor;
-                        w.set_cursor(frame.cursor.icon());
-                    }
+                    self.shown.update(w, event_loop, &frame);
                     if let Err(e) = d.draw(&frame) {
                         self.fail(event_loop, e);
                     }
@@ -589,7 +673,10 @@ pub fn run<A: App + 'static>(title: &str, options: WindowOptions, app: A) -> Res
         wheel: (0.0, 0.0),
         swallowed: Vec::new(),
         remembered: WindowSettings::default(),
-        cursor: Cursor::Default,
+        shown: Shown {
+            title: title.to_owned(),
+            ..Shown::default()
+        },
         #[cfg(target_arch = "wasm32")]
         pending: None,
     };

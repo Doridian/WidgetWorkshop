@@ -119,15 +119,6 @@ fn parse_double(text: &[u8]) -> f64 {
     best
 }
 
-/// A random number for the Sound Transformer's level bars. The original
-/// calls Borland's `rand` (a 64-bit LCG, `0x481530`); its state is wider
-/// than [`crate::sim::Env::seed`], so this is the same LCG on 32 bits.
-/// The bars are only decoration.
-fn rand(io: &mut Io<'_>) -> u32 {
-    io.env.seed = io.env.seed.wrapping_mul(0x015A_4E35).wrapping_add(1);
-    (io.env.seed >> 1) & 0x7fff_ffff
-}
-
 // ---------------------------------------------------------------------------
 // The Stopwatch
 
@@ -957,7 +948,7 @@ impl Behavior for SoundTransformer {
         }
         if io.throttle(core, 20) {
             for l in &mut self.levels {
-                let r = (rand(io) % 3) as i8;
+                let r = (super::common::lrand(&mut io.env.rng) % 3) as i8;
                 *l = (*l + 1 - r).clamp(0, 6);
             }
         }

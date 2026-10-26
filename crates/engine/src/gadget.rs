@@ -330,6 +330,8 @@ pub struct DrawCx<'a> {
     pub running: bool,
     /// The clock, in Mac ticks (1/60 s).
     pub ticks: u32,
+    /// The Light button (`DAT_00493ddc`): parts with a dark look use it.
+    pub lights: bool,
 }
 
 impl DrawCx<'_> {
@@ -403,6 +405,12 @@ pub trait Behavior: Any {
     /// Slot 0x04: draws the gadget. The default draws frame 1 of its sheet.
     fn draw(&self, core: &Core, cx: &mut DrawCx<'_>) {
         cx.frame(core.sheet, 1, core.h, core.v);
+    }
+
+    /// The frame of its sheet whose rectangle is its bounds (`+0x18`, set
+    /// by the class's init).
+    fn bounds_frame(&self) -> u16 {
+        1
     }
 
     /// Slot 0x44: one step of the running widget.
@@ -479,6 +487,19 @@ pub trait Behavior: Any {
 
     /// Reads what [`Behavior::save`] wrote.
     fn load(&mut self, _core: &mut Core, _data: &[u8]) {}
+
+    /// The settings block as the class's save (slot 0x40) writes it, where
+    /// it differs from [`Core::settings`] (the Billboard hides its line
+    /// breaks while saving); `None` writes [`Core::settings`].
+    fn saved_settings(&self, _core: &Core) -> Option<Settings> {
+        None
+    }
+
+    /// Re-derives what depends on the fonts: the extent of a part sized by
+    /// its text (the Label's `0x45af79`). The document calls it after
+    /// creating or loading a gadget; the editor calls it after the settings
+    /// dialog's OK.
+    fn layout(&mut self, _core: &mut Core, _assets: &Assets) {}
 
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;

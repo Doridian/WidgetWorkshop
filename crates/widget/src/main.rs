@@ -20,7 +20,7 @@ use web_time::Duration;
 use engine::assets::{Assets, Source};
 use engine::doc::Document;
 use engine::editor::{self, Editor};
-use platform::{App, Button, Cursor, Frame, Input, WindowOptions};
+use platform::{App, Button, Cursor, CursorImage, Frame, Input, WindowOptions};
 
 use crate::sound::Sound;
 
@@ -162,6 +162,17 @@ impl App for Workshop {
             palette: &self.palette,
             overlay: None,
             cursor: Cursor::Default,
+            cursor_image: match self.editor.pointer() {
+                editor::Pointer::Game(i) => self.editor.cursor_picture(i).map(|c| CursorImage {
+                    key: u32::from(i),
+                    width: c.width,
+                    height: c.height,
+                    hot: c.hot,
+                    rgba: &c.rgba,
+                }),
+                editor::Pointer::Arrow => None,
+            },
+            title: Some(self.editor.title()),
         }
     }
 
@@ -176,19 +187,25 @@ impl App for Workshop {
     }
 }
 
-/// The CD to read: the one given, else the only `.iso` here, else `orig`.
+/// The CD to read when none is given: of the `.iso`s here, the first with
+/// the fonts ([`engine::assets::FONT_DIR`]), else the first that opens,
+/// else `orig`.
 fn default_cd() -> PathBuf {
-    let isos: Vec<PathBuf> = std::fs::read_dir(".")
+    let mut isos: Vec<PathBuf> = std::fs::read_dir(".")
         .into_iter()
         .flatten()
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("iso")))
         .collect();
-    match isos.as_slice() {
-        [one] => one.clone(),
-        _ => PathBuf::from("orig"),
-    }
+    isos.sort();
+    let opened: Vec<(&PathBuf, Box<dyn Source>)> = isos.iter().filter_map(|p| Some((p, cd::open(p).ok()?))).collect();
+    let has_fonts = |cd: &dyn Source| !cd.list(engine::assets::FONT_DIR).is_empty();
+    opened
+        .iter()
+        .find(|(_, cd)| has_fonts(cd.as_ref()))
+        .or(opened.first())
+        .map_or_else(|| PathBuf::from("orig"), |(p, _)| (*p).clone())
 }
 
 fn main() {
@@ -213,6 +230,13 @@ fn main() {
             exit(1);
         }
     };
+    if assets.fonts.is_empty() {
+        eprintln!(
+            "{}: no fonts in {} (or the overrides' fonts folder); text won't be drawn",
+            cd_path.display(),
+            engine::assets::FONT_DIR
+        );
+    }
     if let Some(dir) = &args.export {
         match cd::export(&assets, dir) {
             Ok(n) => println!("{n} files written to {}", dir.display()),
@@ -240,6 +264,8 @@ fn main() {
     let palette = assets.palette();
     let mut editor = Editor::new(assets, doc, platform::DEFAULT_DESKTOP.0, platform::DEFAULT_DESKTOP.1);
     editor.path = path;
+    // `0x415018`: the random generator starts at `(u32)time(NULL)`.
+    editor.env.rng = chrono::Utc::now().timestamp().rem_euclid(1 << 32).unsigned_abs();
     let audio = if args.no_audio {
         platform::audio::Audio::silent()
     } else {

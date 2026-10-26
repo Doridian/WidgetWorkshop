@@ -254,12 +254,13 @@ impl Document {
         r
     }
 
-    /// Starts running: every gadget's slot 0x20, wires unchanged.
+    /// Starts running (`0x424a12`): every gadget's slot 0x20, head to
+    /// tail (the end of [`Document::gadgets`] first), wires unchanged.
     pub fn start(&mut self, assets: &Assets, env: &mut Env) {
         for w in &mut self.wires {
             w.changed = false;
         }
-        for i in 0..self.gadgets.len() {
+        for i in (0..self.gadgets.len()).rev() {
             self.with_gadget(i, assets, env, |g, io| g.behavior.start(&mut g.core, io));
         }
     }
@@ -274,9 +275,17 @@ impl Document {
         }
     }
 
-    /// One tick: every gadget's slot 0x44, in list order.
+    /// One tick: every gadget's slot 0x44, head to tail, so the newest
+    /// first (`0x42498f`, docs/editor-interaction.md 1.2); only [`Env::exclusive`] while one is set, and none after a gadget
+    /// ends the run.
     pub fn tick(&mut self, assets: &Assets, env: &mut Env) {
-        for i in 0..self.gadgets.len() {
+        for i in (0..self.gadgets.len()).rev() {
+            if env.end_run.is_some() {
+                break;
+            }
+            if env.exclusive.is_some_and(|id| id != self.gadgets[i].core.id) {
+                continue;
+            }
             self.with_gadget(i, assets, env, |g, io| g.behavior.tick(&mut g.core, io));
         }
     }
@@ -316,6 +325,7 @@ pub fn new_gadget(assets: &Assets, tag: Tag, id: u32, h: i32, v: i32) -> Gadget 
     g.behavior.init(&mut g.core);
     g.behavior.reset(&mut g.core);
     g.behavior.settings_changed(&mut g.core);
+    g.behavior.layout(&mut g.core, assets);
     g
 }
 
@@ -324,10 +334,10 @@ fn make(assets: &Assets, tag: Tag) -> (Core, Box<dyn crate::gadget::Behavior>) {
     let (gid, sheet, knot_table) = class.map_or((0, 0, 0), |c| (c.gadget_id, c.sheet, c.knots));
     let mut core = Core::new(tag, gid, sheet);
     core.knots = knots(assets, knot_table);
-    core.bounds = crate::gfx::Pictures::default()
-        .rect(assets, crate::assets::Module::Gadget, sheet, 1)
-        .unwrap_or_default();
     let behavior = class.map_or_else(|| Box::new(Unknown::default()) as Box<_>, |c| (c.make)());
+    core.bounds = crate::gfx::Pictures::default()
+        .rect(assets, crate::assets::Module::Gadget, sheet, behavior.bounds_frame())
+        .unwrap_or_default();
     (core, behavior)
 }
 
@@ -347,6 +357,7 @@ fn load_gadget(assets: &Assets, c: &Chunk) -> Gadget {
     g.behavior.load(&mut g.core, d.get(BASE_SIZE..).unwrap_or_default());
     g.behavior.reset(&mut g.core);
     g.behavior.settings_changed(&mut g.core);
+    g.behavior.layout(&mut g.core, assets);
     g
 }
 
@@ -356,7 +367,9 @@ fn save_gadget(g: &Gadget) -> Chunk {
     base[0..4].copy_from_slice(&g.core.id.to_be_bytes());
     base[4..6].copy_from_slice(&i16::try_from(g.core.v).unwrap_or(0).to_be_bytes());
     base[6..8].copy_from_slice(&i16::try_from(g.core.h).unwrap_or(0).to_be_bytes());
-    base[8..8 + crate::gadget::SETTINGS_SIZE].copy_from_slice(&g.core.settings.to_be());
+    let settings = g.behavior.saved_settings(&g.core);
+    let settings = settings.as_ref().unwrap_or(&g.core.settings);
+    base[8..8 + crate::gadget::SETTINGS_SIZE].copy_from_slice(&settings.to_be());
     base[0x110] = u8::from(g.core.locked);
     base.extend_from_slice(&g.behavior.save(&g.core));
     Chunk {

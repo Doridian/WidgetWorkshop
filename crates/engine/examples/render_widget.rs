@@ -26,6 +26,7 @@ fn main() {
         pictures: &pictures,
         running: false,
         ticks: 0,
+        lights: true,
     };
     doc.draw_gadgets(&mut cx);
     for wire in &doc.wires {

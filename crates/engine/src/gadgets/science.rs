@@ -4,10 +4,9 @@
 //! is closed-form, timed by the run clock in Mac ticks (1/60 s), in feet
 //! and seconds.
 
-use std::any::Any;
-
 use formats::hr::Rect;
 
+use super::common::{any, draw_broken, parse_num, point, scan_f64, trunc, trunc_sat};
 use crate::assets::Module;
 use crate::gadget::{Behavior, Core, DrawCx};
 use crate::sim::Io;
@@ -61,102 +60,16 @@ fn seconds(io: &Io<'_>, since: u32) -> f64 {
     f64::from(io.elapsed().wrapping_sub(since)) / 60.0
 }
 
-/// `_ftol` (`0x480ec4`): truncation toward zero.
-#[allow(clippy::cast_possible_truncation)]
-fn trunc(x: f64) -> i32 {
-    x as i32
-}
-
-/// `0x439e3d`: truncation, saturating short of the extremes.
-fn trunc_sat(x: f64) -> i32 {
-    if x >= 2_147_483_647.0 {
-        0x7fff_fffe
-    } else if x <= -2_147_483_646.0 {
-        -0x7fff_fffe
-    } else {
-        trunc(x)
-    }
-}
-
-/// What `sscanf(s, "%lf")` reads from the start of `s`, if anything.
-fn scan_f64(s: &[u8]) -> Option<f64> {
-    let s = std::str::from_utf8(s).ok()?.trim_start();
-    let b = s.as_bytes();
-    let mut end = 0;
-    if matches!(b.first(), Some(b'+' | b'-')) {
-        end = 1;
-    }
-    let digits = |from: usize| b[from..].iter().take_while(|c| c.is_ascii_digit()).count();
-    let int = digits(end);
-    end += int;
-    let mut frac = 0;
-    if b.get(end) == Some(&b'.') {
-        frac = digits(end + 1);
-        end += 1 + frac;
-    }
-    if int + frac == 0 {
-        return None;
-    }
-    if matches!(b.get(end), Some(b'e' | b'E')) {
-        let mut e = end + 1;
-        if matches!(b.get(e), Some(b'+' | b'-')) {
-            e += 1;
-        }
-        let n = digits(e);
-        if n > 0 {
-            end = e + n;
-        }
-    }
-    s[..end].parse().ok()
-}
-
-/// A number typed in a text field (`0x4110c3`): 0 when unreadable, and
-/// kept off zero and infinity.
-fn parse_num(s: &[u8]) -> f64 {
-    let d = scan_f64(s).unwrap_or(0.0);
-    if d > 0.0 {
-        d.clamp(1e-300, 1e300)
-    } else if d < 0.0 {
-        d.clamp(-1e300, -1e-300)
-    } else {
-        d
-    }
-}
-
 /// Frame `n`'s half width and height (for centring), as C divides.
 fn half_size(cx: &DrawCx<'_>, sheet: u32, n: u16) -> (i32, i32) {
-    cx.pictures.rect(cx.assets, Module::Gadget, sheet, n).map_or((0, 0), |r| {
-        (
-            (i32::from(r.right) - i32::from(r.left)) / 2,
-            (i32::from(r.bottom) - i32::from(r.top)) / 2,
-        )
-    })
-}
-
-/// The point `i` of table `id`, as (`h`, `v`).
-fn point(cx: &DrawCx<'_>, id: u32, i: usize) -> (i32, i32) {
-    cx.points(id)
-        .get(i)
-        .map_or((0, 0), |p| (i32::from(p.h), i32::from(p.v)))
-}
-
-/// The broken picture (slot 0x10, `0x41ed9d`).
-// TODO: draw the broken sheet (`DAT_004a2694`) centred once it's
-// identified; frame 1 stands in for it.
-fn draw_broken(core: &Core, cx: &mut DrawCx<'_>) {
-    cx.frame(core.sheet, 1, core.h, core.v);
-}
-
-macro_rules! any {
-    () => {
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-
-        fn as_any_mut(&mut self) -> &mut dyn Any {
-            self
-        }
-    };
+    cx.pictures
+        .rect(cx.assets, Module::Gadget, sheet, n)
+        .map_or((0, 0), |r| {
+            (
+                (i32::from(r.right) - i32::from(r.left)) / 2,
+                (i32::from(r.bottom) - i32::from(r.top)) / 2,
+            )
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -691,23 +604,31 @@ impl Behavior for Planet {
         cx.frame(s, 14, core.h, core.v);
         let p = planet_index(core);
         let n = u16::try_from(p + 1).unwrap_or(1);
-        let (hw, hh) = cx
-            .pictures
-            .rect(cx.assets, Module::Gadget, s, n)
-            .map_or((0, 0), |r| {
-                (
-                    i32::from(r.right) - i32::from(r.left),
-                    i32::from(r.bottom) - i32::from(r.top),
-                )
-            });
+        let (hw, hh) = cx.pictures.rect(cx.assets, Module::Gadget, s, n).map_or((0, 0), |r| {
+            (
+                i32::from(r.right) - i32::from(r.left),
+                i32::from(r.bottom) - i32::from(r.top),
+            )
+        });
         cx.frame(s, n, core.h + 7 + (94 - hw) / 2, core.v + 7 + (88 - hh) / 2);
         // Small Fonts 11, green, bottom-aligned (TA_BOTTOM) at 107; centred
         // over 88 pixels, not the picture's 94.
         let name = PLANETS[p].name;
         let w = cx.text_width("Small Fonts", 11, false, name);
-        let height = cx.assets.font("Small Fonts", 11, false).map_or(11, |f| i32::from(f.height));
+        let height = cx
+            .assets
+            .font("Small Fonts", 11, false)
+            .map_or(11, |f| i32::from(f.height));
         let c = cx.color([0, 255, 0]);
-        cx.text("Small Fonts", 11, false, core.h + 9 + (88 - w) / 2, core.v + 107 - height, name, c);
+        cx.text(
+            "Small Fonts",
+            11,
+            false,
+            core.h + 9 + (88 - w) / 2,
+            core.v + 107 - height,
+            name,
+            c,
+        );
     }
 
     fn tick(&mut self, core: &mut Core, _io: &mut Io<'_>) {
@@ -766,14 +687,12 @@ pub fn area_volume(shape: u8, x: f64) -> f64 {
 
 /// cAreaVolume: crunches a new input for a moment, then outputs the area
 /// or volume; a negative input breaks it.
-#[derive(Debug)]
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct AreaVolume {
     /// Whether the input's wire was flagged changed when the crunching
     /// began (`+0x197`).
     wire_changed: bool,
 }
-
 
 #[must_use]
 pub fn area_volume_gadget() -> Box<dyn Behavior> {
@@ -784,7 +703,12 @@ impl Behavior for AreaVolume {
     fn draw(&self, core: &Core, cx: &mut DrawCx<'_>) {
         cx.frame(core.sheet, u16::from(core.phase) + 1, core.h, core.v);
         let (h, v) = point(cx, core.sheet, 0);
-        cx.frame(core.sheet, u16::from(core.settings.radios[0]) + 9, core.h + h, core.v + v);
+        cx.frame(
+            core.sheet,
+            u16::from(core.settings.radios[0]) + 9,
+            core.h + h,
+            core.v + v,
+        );
         if core.broken {
             draw_broken(core, cx);
         }
@@ -804,7 +728,11 @@ impl Behavior for AreaVolume {
                 let x = io.number(core, 0);
                 core.phase = 0;
                 core.broken = x < 0.0;
-                core.number = if core.broken { 0.0 } else { area_volume(core.settings.radios[0], x) };
+                core.number = if core.broken {
+                    0.0
+                } else {
+                    area_volume(core.settings.radios[0], x)
+                };
                 if self.wire_changed {
                     io.fire(core, 1);
                 }
@@ -832,128 +760,10 @@ impl Behavior for AreaVolume {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assets::Assets;
-    use crate::gadget::{Gadget, Knot, Tag, Unknown};
-    use crate::sim::{Env, Wire};
-    use formats::tables::{KnotDef, KnotKind, Point};
-
-    /// A source giving a fixed number.
-    struct Source(f64);
-
-    impl Behavior for Source {
-        fn has_number(&self, _core: &Core, _knot: usize) -> bool {
-            true
-        }
-
-        fn number_out(&self, _core: &Core, _knot: usize) -> f64 {
-            self.0
-        }
-
-        any!();
-    }
-
-    fn knot(kind: KnotKind) -> Knot {
-        Knot {
-            def: KnotDef {
-                at: Point { v: 0, h: 0 },
-                kind,
-            },
-            wire: None,
-        }
-    }
-
-    /// A gadget under test (id 2) with input 0 wired to a source (id 1)
-    /// giving `input`, and output 1 wired to nothing in particular.
-    struct Bench {
-        core: Core,
-        gadgets: Vec<Gadget>,
-        wires: Vec<Wire>,
-        env: Env,
-        assets: Assets,
-    }
-
-    impl Bench {
-        fn new(input: f64) -> Bench {
-            let mut core = Core::new(Tag::new(b"test"), 0, 0);
-            core.id = 2;
-            core.knots = vec![knot(KnotKind::Input), knot(KnotKind::Output)];
-            core.knots[0].wire = Some(0);
-            core.knots[1].wire = Some(1);
-            let mut src = Core::new(Tag::new(b"src_"), 0, 0);
-            src.id = 1;
-            let mut me = Core::new(Tag::new(b"test"), 0, 0);
-            me.id = 2;
-            let wire = |from, to| Wire {
-                from,
-                from_knot: 0,
-                to,
-                to_knot: 0,
-                flag: 0,
-                points: Vec::new(),
-                changed: false,
-            };
-            Bench {
-                core,
-                gadgets: vec![
-                    Gadget {
-                        core: src,
-                        behavior: Box::new(Source(input)),
-                    },
-                    Gadget {
-                        core: me,
-                        behavior: Box::new(Unknown::default()),
-                    },
-                ],
-                wires: vec![wire(0, 1), wire(1, 0)],
-                env: Env::default(),
-                assets: Assets::default(),
-            }
-        }
-
-        fn set_input(&mut self, x: f64) {
-            self.gadgets[0].behavior = Box::new(Source(x));
-            self.wires[0].changed = true;
-        }
-
-        fn run<R>(&mut self, f: impl FnOnce(&mut Core, &mut Io<'_>) -> R) -> R {
-            let mut io = Io {
-                assets: &self.assets,
-                gadgets: &self.gadgets,
-                wires: &mut self.wires,
-                env: &mut self.env,
-            };
-            f(&mut self.core, &mut io)
-        }
-
-        fn start(&mut self, b: &mut dyn Behavior) {
-            b.reset(&mut self.core);
-            self.run(|c, io| b.start(c, io));
-        }
-
-        /// Ticks once at run tick `t`.
-        fn tick_at(&mut self, b: &mut dyn Behavior, t: u32) {
-            self.env.ticks = t;
-            self.run(|c, io| b.tick(c, io));
-        }
-
-        fn fired(&mut self) -> bool {
-            std::mem::take(&mut self.wires[1].changed)
-        }
-    }
+    use crate::gadgets::common::bench::Bench;
 
     fn close(a: f64, b: f64) -> bool {
         (a - b).abs() <= 1e-9 * a.abs().max(b.abs()).max(1.0)
-    }
-
-    #[test]
-    fn parses_numbers_like_scanf() {
-        assert_eq!(scan_f64(b" 12.5ft"), Some(12.5));
-        assert_eq!(scan_f64(b"-3e2"), Some(-300.0));
-        assert_eq!(scan_f64(b"abc"), None);
-        assert_eq!(scan_f64(b""), None);
-        assert!(close(parse_num(b"1e-400"), 0.0));
-        assert!(close(parse_num(b"0"), 0.0));
-        assert!(close(parse_num(b"5"), 5.0));
     }
 
     #[test]
@@ -985,7 +795,7 @@ mod tests {
             b.tick_at(&mut p, t);
             if b.core.state {
                 crossings.push(f64::from(t - 10) / 60.0);
-                assert!(b.fired());
+                assert!(b.fired(1));
             }
         }
         // Each crossing is seen within one throttle step after it happens.
@@ -993,7 +803,10 @@ mod tests {
         for (k, &seen) in crossings.iter().enumerate() {
             #[allow(clippy::cast_precision_loss)]
             let at = (0.25 + 0.5 * k as f64) * period;
-            assert!(seen >= at && seen < at + 7.0 / 60.0, "crossing {k} at {at}, seen {seen}");
+            assert!(
+                seen >= at && seen < at + 7.0 / 60.0,
+                "crossing {k} at {at}, seen {seen}"
+            );
         }
     }
 
@@ -1041,7 +854,7 @@ mod tests {
         }
         assert_eq!(b.core.phase, 5);
         assert!(b.core.state);
-        assert!(b.fired());
+        assert!(b.fired(1));
         assert!(f64::from(t) >= land - 1.0 && f64::from(t) <= land + 1.0);
         assert_eq!(d.y, 77);
     }
@@ -1065,12 +878,12 @@ mod tests {
             t += 1;
             b.tick_at(&mut c, t);
         }
-        assert!(b.fired());
+        assert!(b.fired(1));
         assert!(close(b.core.number, 132.0 * tf));
         assert_eq!((c.ball_x, c.ball_y), (158, 66));
         // Fires once per run.
         b.tick_at(&mut c, t + 100);
-        assert!(!b.fired());
+        assert!(!b.fired(1));
     }
 
     #[test]
@@ -1113,7 +926,7 @@ mod tests {
         assert_eq!(b.core.phase, 0);
         assert!(close(b.core.number, 8.0 * FOUR_THIRDS_PI));
         // Only a value difference, not a flagged wire: no changed flag.
-        assert!(!b.fired());
+        assert!(!b.fired(1));
 
         b.set_input(-1.0);
         b.tick_at(&mut a, 100);
@@ -1122,7 +935,7 @@ mod tests {
         }
         assert!(b.core.broken);
         assert!(close(b.core.number, 0.0));
-        assert!(b.fired());
+        assert!(b.fired(1));
     }
 
     #[test]

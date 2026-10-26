@@ -89,6 +89,18 @@ pub(crate) fn virtual_key(code: KeyCode) -> Option<u16> {
         KeyCode::NumpadSubtract => 0x6d,
         KeyCode::NumpadDecimal => 0x6e,
         KeyCode::NumpadDivide => 0x6f,
+        KeyCode::NumpadComma => 0x6c,
+        KeyCode::Semicolon => 0xba,
+        KeyCode::Equal => 0xbb,
+        KeyCode::Comma => 0xbc,
+        KeyCode::Minus => 0xbd,
+        KeyCode::Period => 0xbe,
+        KeyCode::Slash => 0xbf,
+        KeyCode::Backquote => 0xc0,
+        KeyCode::BracketLeft => 0xdb,
+        KeyCode::Backslash => 0xdc,
+        KeyCode::BracketRight => 0xdd,
+        KeyCode::Quote => 0xde,
         _ => return None,
     })
 }
