@@ -1,7 +1,9 @@
 //! The game's profile (`%WINDIR%\WIDGET.INI`, `[Widget Workshop]`) as a
 //! `WIDGET.INI` in the port's settings folder
-//! (`platform::storage::config_dir`). Only the solved puzzles (`Done=`)
-//! are kept there; the CD's own `WIDGET.INI` is never read or written.
+//! (`platform::storage::config_dir`): the solved puzzles (`Done=`), Fit
+//! Work Area's size (`FitSize=`), the save's remembered Mac answer
+//! (`Fit=`), and `WidgetHome=` if the player puts it there. The CD's own
+//! `WIDGET.INI` is never read or written.
 
 use std::path::PathBuf;
 

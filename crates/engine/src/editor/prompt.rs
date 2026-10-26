@@ -1,6 +1,6 @@
-//! Message boxes (`MessageBox`, `cAlert` `0x410b5b`) and, standing in for
-//! the common file dialogs the platform doesn't have, a box asking for a
-//! file name. Windows 95's look: a caption bar, the text, buttons.
+//! Message boxes (`MessageBox`, `cAlert` `0x410b5b`) in Windows 95's look:
+//! a caption bar, the text, buttons. The file dialogs are
+//! [`super::file_dialog`].
 
 use crate::assets::Assets;
 use crate::gfx::{IRect, Surface};
@@ -31,15 +31,12 @@ const CAPTION_H: i32 = 18;
 const BUTTON_W: i32 = 75;
 const BUTTON_H: i32 = 23;
 const MARGIN: i32 = 12;
-const EDIT_H: i32 = 20;
 
 /// A modal box over the editor.
 #[derive(Debug, Clone)]
 pub struct Prompt {
     pub title: String,
     pub text: String,
-    /// A text field (the file name), if it asks for one.
-    pub input: Option<String>,
     pub buttons: Vec<Answer>,
     /// The button the mouse holds down.
     pressed: Option<usize>,
@@ -51,38 +48,25 @@ impl Prompt {
         Prompt {
             title: title.to_owned(),
             text: text.to_owned(),
-            input: None,
             buttons: buttons.to_vec(),
             pressed: None,
         }
     }
 
-    /// A box asking for a file name, starting with `name`.
-    #[must_use]
-    pub fn ask(title: &str, text: &str, name: &str) -> Prompt {
-        let mut p = Prompt::new(title, text, &[Answer::Ok, Answer::Cancel]);
-        p.input = Some(name.to_owned());
-        p
-    }
-
-    fn layout(&self, assets: &Assets, area: IRect) -> (IRect, Vec<String>, Vec<IRect>, IRect) {
+    fn layout(&self, assets: &Assets, area: IRect) -> (IRect, Vec<String>, Vec<IRect>) {
         let Some(font) = ui::font(assets) else {
-            return (IRect::default(), Vec::new(), Vec::new(), IRect::default());
+            return (IRect::default(), Vec::new(), Vec::new());
         };
         let lines = ui::wrap(font, &self.text, 360);
         let tw = lines.iter().map(|l| ui::width(font, l)).max().unwrap_or(0);
         let nb = i32::try_from(self.buttons.len()).unwrap_or(0);
         let bw = nb * BUTTON_W + (nb - 1).max(0) * 6;
-        let mut w = (tw + 2 * MARGIN)
+        let w = (tw + 2 * MARGIN)
             .max(bw + 2 * MARGIN)
             .max(ui::width(font, &self.title) + 40);
-        if self.input.is_some() {
-            w = w.max(320);
-        }
         let lh = i32::from(font.height);
         let text_h = lh * i32::try_from(lines.len()).unwrap_or(0);
-        let edit_h = if self.input.is_some() { EDIT_H + 8 } else { 0 };
-        let h = CAPTION_H + 3 + MARGIN + text_h + 8 + edit_h + BUTTON_H + MARGIN + 3;
+        let h = CAPTION_H + 3 + MARGIN + text_h + 8 + BUTTON_H + MARGIN + 3;
         let w = w + 6;
         let r = IRect::sized(
             area.x0 + (area.width() - w) / 2,
@@ -95,14 +79,13 @@ impl Prompt {
         let buttons = (0..nb)
             .map(|i| IRect::sized(bx + i * (BUTTON_W + 6), by, BUTTON_W, BUTTON_H))
             .collect();
-        let edit = IRect::sized(r.x0 + 3 + MARGIN, by - 8 - EDIT_H, r.width() - 6 - 2 * MARGIN, EDIT_H);
-        (r, lines, buttons, edit)
+        (r, lines, buttons)
     }
 
     /// Draws the box centred in `area`.
     pub fn draw(&self, s: &mut Surface, assets: &Assets, area: IRect) {
         let Some(font) = ui::font(assets) else { return };
-        let (r, lines, buttons, edit) = self.layout(assets, area);
+        let (r, lines, buttons) = self.layout(assets, area);
         s.fill(r, ui::FACE);
         ui::raised(s, r);
         let cap = IRect::new(r.x0 + 3, r.y0 + 3, r.x1 - 3, r.y0 + 3 + CAPTION_H);
@@ -119,21 +102,6 @@ impl Prompt {
             s.text(font, r.x0 + 3 + MARGIN, y, &crate::text::encode(l), ui::BLACK);
             y += i32::from(font.height);
         }
-        if let Some(t) = &self.input {
-            s.fill(edit, ui::WHITE);
-            ui::sunken(s, edit);
-            let old = s.clip();
-            s.set_clip(edit.inset(2).intersect(old));
-            let bytes = crate::text::encode(t);
-            let tw = i32::try_from(font.width(&bytes)).unwrap_or(0);
-            let x = edit.x0 + 4 - (tw - (edit.width() - 10)).max(0);
-            let w = s.text(font, x, edit.y0 + 3, &bytes, ui::BLACK);
-            s.fill(
-                IRect::new(x + w, edit.y0 + 3, x + w + 1, edit.y0 + 3 + i32::from(font.height)),
-                ui::BLACK,
-            );
-            s.set_clip(old);
-        }
         for (i, (b, rect)) in self.buttons.iter().zip(buttons).enumerate() {
             ui::button(s, font, rect, b.label(), self.pressed == Some(i), i == 0, true);
         }
@@ -141,20 +109,21 @@ impl Prompt {
 
     /// The mouse went down at `p`.
     pub fn mouse_down(&mut self, assets: &Assets, area: IRect, p: (i32, i32)) {
-        let (_, _, buttons, _) = self.layout(assets, area);
+        let (_, _, buttons) = self.layout(assets, area);
         self.pressed = buttons.iter().position(|b| b.contains(p.0, p.1));
     }
 
     /// The mouse went up at `p`: the answer if it's on the pressed button.
     pub fn mouse_up(&mut self, assets: &Assets, area: IRect, p: (i32, i32)) -> Option<Answer> {
-        let (_, _, buttons, _) = self.layout(assets, area);
+        let (_, _, buttons) = self.layout(assets, area);
         let i = self.pressed.take()?;
         buttons[i].contains(p.0, p.1).then(|| self.buttons[i])
     }
 
-    /// A key: Enter is the first button, Esc Cancel (or No), letters the
-    /// buttons' mnemonics or the text.
-    pub fn key(&mut self, vk: u16, shift: bool) -> Option<Answer> {
+    /// A key: Enter is the first button, Esc Cancel (or OK alone),
+    /// letters the buttons' mnemonics.
+    #[must_use]
+    pub fn key(&self, vk: u16) -> Option<Answer> {
         match vk {
             0x0d => return self.buttons.first().copied(),
             0x1b => {
@@ -166,14 +135,6 @@ impl Prompt {
                     .or_else(|| (self.buttons == [Answer::Ok]).then_some(Answer::Ok));
             }
             _ => {}
-        }
-        if let Some(t) = &mut self.input {
-            if vk == 0x08 {
-                t.pop();
-            } else if let Some(c) = typed(vk, shift) {
-                t.push(c);
-            }
-            return None;
         }
         let c = char::from(u8::try_from(vk).ok()?);
         self.buttons
@@ -219,17 +180,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn typing_and_answers() {
-        let mut p = Prompt::ask("Open", "File:", "a");
-        assert_eq!(p.key(0x42, false), None);
-        assert_eq!(p.key(0xbe, false), None);
-        assert_eq!(p.key(0x57, true), None);
-        assert_eq!(p.input.as_deref(), Some("ab.W"));
-        p.key(0x08, false);
-        assert_eq!(p.input.as_deref(), Some("ab."));
-        assert_eq!(p.key(0x0d, false), Some(Answer::Ok));
-        assert_eq!(p.key(0x1b, false), Some(Answer::Cancel));
-        let mut q = Prompt::new("t", "x", &[Answer::Yes, Answer::No, Answer::Cancel]);
-        assert_eq!(q.key(u16::from(b'N'), false), Some(Answer::No));
+    fn answers_and_typing() {
+        let p = Prompt::new("t", "x", &[Answer::Yes, Answer::No, Answer::Cancel]);
+        assert_eq!(p.key(u16::from(b'N')), Some(Answer::No));
+        assert_eq!(p.key(0x0d), Some(Answer::Yes));
+        assert_eq!(p.key(0x1b), Some(Answer::Cancel));
+        assert_eq!(Prompt::new("t", "x", &[Answer::Ok]).key(0x1b), Some(Answer::Ok));
+        assert_eq!(typed(0x42, false), Some('b'));
+        assert_eq!(typed(0x57, true), Some('W'));
+        assert_eq!(typed(0xbe, false), Some('.'));
     }
 }

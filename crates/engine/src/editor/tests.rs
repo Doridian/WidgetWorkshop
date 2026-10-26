@@ -437,29 +437,39 @@ fn recorder_imports_wave_files() {
     let missing = dir.join("missing.wav");
     let import = |e: &mut Editor, path: &std::path::Path, answer: u16| {
         click_control(e, 107);
-        let (p, then) = e.prompt.as_mut().unwrap();
+        let (d, then) = e.file_dialog.as_mut().unwrap();
         assert_eq!(*then, Then::ImportWav(g));
-        p.input = Some(path.display().to_string());
+        d.name = path.display().to_string();
         e.key_down(answer);
     };
     e.open_settings(g);
     e.doc.gadgets[g].core.broken = true;
     // Cancelled: nothing.
     import(&mut e, &good, 0x1b);
-    assert!(e.doc.gadgets[g].core.broken && e.prompt.is_none());
+    assert!(e.doc.gadgets[g].core.broken && e.file_dialog.is_none());
     import(&mut e, &good, 0x0d);
-    assert!(!e.doc.gadgets[g].core.broken && e.prompt.is_none());
+    assert!(!e.doc.gadgets[g].core.broken && e.prompt.is_none() && e.file_dialog.is_none());
     assert_eq!(tape_samples(&e, g)[..4], [1, 2, 3, 0x80]);
     // The next one starts in the same folder.
     click_control(&mut e, 107);
-    let start = e.prompt.as_ref().unwrap().0.input.clone().unwrap();
-    assert!(start.starts_with(&dir.display().to_string()) && start.ends_with("*.wav"));
+    let (d, _) = e.file_dialog.as_ref().unwrap();
+    assert_eq!((d.dir.as_path(), d.name.as_str()), (dir.as_path(), ""));
+    assert_eq!(
+        d.items.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
+        ["bad.wav", "deep.wav", "good.wav"]
+    );
     e.key_down(0x1b);
-    for (path, msg) in [
-        (&missing, "Can`t open file"),
-        (&deep, "Can't import non-8 bit sound"),
-        (&bad, "Bad file format"),
-    ] {
+    // A missing file: the dialog's own message (`OFN_FILEMUSTEXIST`).
+    import(&mut e, &missing, 0x0d);
+    let msg = e.file_dialog.as_ref().unwrap().0.message().unwrap().to_owned();
+    assert!(
+        msg.ends_with("File not found.\nPlease verify the correct file name was given."),
+        "{msg}"
+    );
+    e.key_down(0x0d);
+    e.key_down(0x1b);
+    assert!(e.file_dialog.is_none());
+    for (path, msg) in [(&deep, "Can't import non-8 bit sound"), (&bad, "Bad file format")] {
         import(&mut e, path, 0x0d);
         assert_eq!(prompt_text(&e), Some(format!("{}\n{msg}", path.display())));
         e.key_down(0x0d);

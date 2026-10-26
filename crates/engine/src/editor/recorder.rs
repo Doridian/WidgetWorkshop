@@ -10,7 +10,7 @@
 use crate::gadgets::sound_time::{TAPE_LEN, TapePlayer, WavError};
 use crate::sim::SoundCmd;
 
-use super::prompt::{Answer, Prompt};
+use super::prompt::Answer;
 use super::{Editor, Then};
 
 /// The catch handler's message (`0x459f9f`, literal at `0x49c04a`).
@@ -129,24 +129,10 @@ impl Editor {
         }
     }
 
-    /// "Import .WAV file" (`0x459fe8`): the file asked for, starting in the
-    /// folder last chosen (`DAT_004a2d90`).
-    pub(super) fn ask_wav(&mut self, g: usize) {
-        let name = format!("{}*.wav", self.wav_dir);
-        self.prompt = Some((
-            Prompt::ask("Import from Wave format file", "Wave files (*.wav) - file name:", &name),
-            Then::ImportWav(g),
-        ));
-    }
-
     /// `0x43deda` on the file `path` into Recorder `g`; its messages on
     /// failure. Success clears the broken flag.
     pub(super) fn import_wav_path(&mut self, g: usize, path: &str) {
-        let p = std::path::Path::new(path);
-        if let Some(dir) = p.parent().filter(|d| !d.as_os_str().is_empty()) {
-            self.wav_dir = format!("{}{}", dir.display(), std::path::MAIN_SEPARATOR);
-        }
-        let error = match std::fs::read(p) {
+        let error = match self.fs().read(std::path::Path::new(path)) {
             // The backtick is the binary's (`0x496a37`).
             Err(_) => Some("Can`t open file"),
             Ok(bytes) => {

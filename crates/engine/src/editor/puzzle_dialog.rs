@@ -426,7 +426,7 @@ impl PuzzleDialog {
 }
 
 /// `DrawFocusRect`: a dotted, inverted outline.
-fn focus_rect(s: &mut Surface, r: IRect) {
+pub(super) fn focus_rect(s: &mut Surface, r: IRect) {
     for x in (r.x0..r.x1).step_by(2) {
         s.invert(IRect::sized(x, r.y0, 1, 1));
         s.invert(IRect::sized(x, r.y1 - 1, 1, 1));

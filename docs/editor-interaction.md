@@ -698,6 +698,26 @@ version...", **Yes / No / Cancel**, check box id 13 "Remember my answer");
 =1 → behave as No; =2 → behave as Yes. If the box is checked, Yes stores 2
 and No stores 1. Yes → `Squeeze`; Cancel → abort the save.
 
+Details (port: `editor/file.rs`):
+
+- The profile numbers are read by `0x41011b` (`GetPrivateProfileString`
+  + `sscanf("%ld")`, default 0 when missing or not a number) and written by
+  `0x4100a1` (`"%ld"`). `Fit` other than 0 and 2 (1, 7, -1...) is No.
+- `Fit` is **written after every 10010**, with the dialog's global
+  `DAT_004a284c`: the value read (0, since the dialog only shows then), or
+  2/1 if "Remember my answer" was ticked on Yes/No (`0x429b4a`); Cancel
+  with the box ticked leaves 0.
+- An empty widget never asks: `IntersectRect` of an empty extents rect
+  gives (0,0,0,0), equal to it.
+- 10014's `OnInitDialog` (`0x429ad6`) checks radio `101 + FitSize` when
+  `(u16)FitSize < 5`, else none. Yes (`0x4298b9`) takes the checked radio,
+  sets the target size and writes `FitSize` (0..4); with none checked Yes
+  does nothing (the dialog stays). No (7) returns 7, which callers treat as
+  "go on" (`0x429591` returns `answer != IDCANCEL`): Save Into continues
+  unsqueezed.
+- `0x429591` is also Save Into's check: it asks only when the extents are
+  non-empty and outside `(15,15)-(625,465)`.
+
 ---
 
 ## 6. Settings dialogs (`cDialog`)
@@ -914,7 +934,7 @@ no joints, locked = 0. Version ≥ 3: as written above.
 | command | id | handler | flow |
 |---|---|---|---|
 | New | 0xE100 | 0x43327a → 0x415865 | if dirty and no puzzle: "Save changes to %s?" (0x410b24; Yes/No/Cancel). Cancel → stop; Yes → Save, stop if it fails. Then: clear path flags and dirty, `UndoClear`, clear the worksheet (0x424b27: deselect, delete all gadgets → their wires, background 0), Pointer tool, all tray counts unlimited (0x4329e0), puzzle reset, title. |
-| Open | 0xE101 | 0x4337c4 → 0x415936 | same prompt; file dialog "Saved widgets (*.wgt)" / "Load widget", or a given path (drag & drop, startup); then 0x416348: `UndoClear`, reset tray, read the whole file (0x416185), clear, reset tray, `Load`, Pointer tool, path, puzzle reset, +0x101 = 0, +0x102 = 1, title, `ClearDirty`. |
+| Open | 0xE101 | 0x4337c4 → 0x415936 | same prompt; file dialog (8.6) "Saved widgets (*.wgt)" / "Load widget", or a given path (drag & drop, startup); then 0x416348: `UndoClear`, reset tray, read the whole file (0x416185), clear, reset tray, `Load`, Pointer tool, path, puzzle reset, +0x101 = 0, +0x102 = 1, title, `ClearDirty`. |
 | Save | 0xE103 | 0x4337d9 → 0x415a3b | no path or puzzle loaded → Save As. Else Mac check (5.5, Cancel aborts); if a puzzle is loaded and Shift isn't held: unlock every gadget and wire (0x426511) and reset tray counts; serialize; write (0x416269, CFile create); on success puzzle reset, +0x102 = 1, `ClearDirty`. |
 | Save As | 0xE104 | 0x4337ea → 0x415c1f | Mac check; default name = puzzle name / path / "untitled.wgt"; dialog "Saved widgets (*.wgt)" / "Save Widget as"; unlock as above; serialize, write, set path, title. |
 | Revert | 0x8004 | 0x4337fb → 0x415ece | only if dirty; confirm 8001 "Revert to last saved version?" or 8002 "Revert to original puzzle?"; reload the file, the .EXE it was imported from, or the puzzle. |
@@ -930,28 +950,111 @@ Startup: the first command-line argument containing ".wgt" that exists is
 opened directly (0x4104c4); otherwise the intro dialog (0x42b07c) returns
 0 → Load Puzzle, 1 → empty widget, 2 → Open, 3 → Exit (0x43480e).
 
-### 8.5 Stand-alone widgets (low priority)
+### 8.5 Stand-alone widgets
 
-- **Save Into a Stand-Alone Widget** (0x8006 → 0x4165a7): needs
-  `WIDGET.SLF` next to WIDGET.EXE (else "Can't find file: WIDGET.SLF...");
-  runs `FitDialog` (Cancel aborts); save dialog "Self running widgets
-  (*.exe)" / "Save Into Stand Alone Widget" (default: current name with
-  .EXE; refuses to overwrite the running exe); `LZCopy` WIDGET.SLF (an
-  LZ-compressed runtime exe) to the target; then appends resources with
-  the program's own PE resource writer (`CWResourceFile`, 0x41218a/
-  0x412297/0x412275): the serialized widget (same bytes as a .wgt) as
-  type **1023 (0x3FF) id 1**; every sound/picture resource needed by the
-  parts present (table at 0x4909a8: 9-byte entries {u32 tag, u16 res type,
-  u16 res id, u8 used}, terminated by tag 'Done'; 0x42659d marks the used
-  ones; duplicates skipped); and the background picture (type 1004, id =
-  background) if not plain. Error 8004 on failure.
-- **Import a Stand-Alone Widget** (0x8005 → 0x416bf5): save prompt; open
-  "Self running widgets (*.exe)" / "Import from self running widget"; read
-  resource 1023/1 from that exe; clear, `Load`, Pointer tool; path = exe
-  path with ".WGT"; +0x101 = 1.
+- **Save Into a Stand-Alone Widget** (0x8006 → 0x4165a7):
+  1. `_splitpath(argv[0])` + `.SLF` must exist (`access`), else
+     `AfxMessageBox("Can't find file: WIDGET.SLF\nIt must be in the same
+     directory as Widget Workshop\n")` (0x491326).
+  2. `FitDialog` (0x429591, 5.5); Cancel stops, No goes on.
+  3. Default name: the puzzle's name, else the path (+0x102) or
+     "untitled.wgt", its extension replaced by `.EXE` (`_makepath` keeps
+     drive and folder); save dialog `0x41732c` "Self running widgets
+     (*.exe)" / "Save Into Stand Alone Widget" / `exe` (8.6).
+  4. `stricmp(target, argv[0]) == 0` → "Unable to save self-running
+     widget with this name".
+  5. Wait cursor; `LZCopy` WIDGET.SLF (an `SZDD`-compressed Win32 PE, 446663
+     → 790528 bytes) to the target (0x4164fc; failure: alert 4, the target
+     removed).
+  6. `CWResourceFile` on the target (0x41218a → 0x4120ec: `access` fails →
+     alert 6; 0x412838 parses MZ/PE and walks the section headers up to
+     `.rsrc`, which must be the last; throws on anything else). Added with
+     language 0 (`0x412297(rf, type, lang, id, data, size)`; leaves are
+     appended, never replaced): the serialized widget (the same bytes as a
+     `.wgt`, tray counts included, **no** puzzle unlocking) as **1023/1**;
+     each entry of the table at **0x4909a8** whose class is on the
+     worksheet (0x42659d: 9-byte entries `{tag as raw bytes, u16 type, u16
+     id, u8 used}` up to `Done`; 115 entries, pictures 1004 from
+     WWGADGET.DLL, sounds 1006 from WWSOUND.DLL via `0x41082a`), a
+     type/id pair once; the background picture (1004, id = background) if
+     not 0.
+  7. 0x412d27 rewrites `.rsrc` in place: virtual size rounded to 0x1000,
+     `SizeOfImage` = rsrc VA + size rounded to 0x10000; failure: alert 4.
+  The document keeps its path, dirty flag and puzzle.
+- **Import a Stand-Alone Widget** (0x8005 → 0x416bf5): if dirty and no
+  puzzle, "Save changes to %s?" (Cancel stops, Yes saves and goes on
+  **whatever the save did**); open dialog `0x417160` "Self running widgets
+  (*.exe)" / "Import from self-running widget" / `exe`; open the file as a
+  `CWResourceFile` (missing → alert 6, which names WIDGET.SLF; not a PE →
+  an exception); no resource 1023/1 → silently nothing. Else clear,
+  reset the tray, `Load`, Pointer tool; +0x102 = 1, +0x101 = 1,
+  `ClearDirty`, path = the exe's with `.WGT` (`_makepath`), puzzle reset,
+  title. **No `UndoClear`** (Open has one).
+- **Revert** with +0x101 (0x415ece): the path's last four characters
+  become `.EXE`, resource 1023/1 is read from there and loaded the same
+  way, then `.WGT` again. Save sets +0x101 = 0 (and Save writes the `.WGT`
+  beside the exe without a dialog, +0x102 being set).
 - The runtime loads its embedded widget with 0x41642c (resource 1023/1).
+  It shows a "This self-running Widget was created with Widget Workshop"
+  splash, then the widget running, menus File (Print Setup, Print Preview,
+  Print, Exit) and Help.
 
----
+Port (`editor/standalone.rs`, `formats::lz`, `formats::pe::add_resources`):
+the same file is made — WIDGET.SLF from the CD (`Assets::runtime`)
+unpacked, the `.rsrc` directory rebuilt with the added resources (same
+type/id/language replaced rather than duplicated). A stand-alone of
+CLOCK.WGT made by the port runs in Wine (the original runtime, splash,
+then the clock with all its pictures). Import reads any of them. The
+`argv[0]` name check is left out (the port isn't a widget runtime). A file
+that isn't a program shows alert 8 ("This file is not a Widget Workshop
+Stand Alone Widget", otherwise unused by the binary) where the original
+throws an MFC exception.
+
+### 8.6 The file dialogs
+
+All three use the common dialogs, Explorer style (no hook, no template):
+
+| caller | function | title / filter / default ext | flags | initial dir | initial name |
+|---|---|---|---|---|---|
+| Open, Import | 0x417160 | "Load widget" / "Saved widgets (*.wgt)" `*.wgt` / `wgt`; Import: "Import from self-running widget" / "Self running widgets (*.exe)" `*.exe` / `exe` | 0x1804 (`HIDEREADONLY \| PATHMUSTEXIST \| FILEMUSTEXIST`) | `DAT_00491076` | empty (`DAT_0049117a`) |
+| Save As, Save Into | 0x41732c | "Save Widget as" / "Saved widgets (*.wgt)" / `wgt`; "Save Into Stand Alone Widget" / "Self running widgets (*.exe)" / `exe` | 0x806 (`OVERWRITEPROMPT \| HIDEREADONLY \| PATHMUSTEXIST`) | `DAT_00491076` | the default's name and extension |
+| Recorder's Import .WAV | 0x43dd54 | "Import from Wave format file" / "Wave files (*.wav)" `*.wav` / `WAV` | 0x1804 | `DAT_004a2d90` | empty |
+
+- `DAT_00491076` (260 bytes) is filled once by the `cFile` constructor
+  (0x417594): profile `[Widget Workshop] WidgetHome` (key at 0x49147c; a
+  trailing `\` dropped), else `_getcwd`. Both widget dialogs first
+  `_chdrive`/`_chdir` to it.
+- Save (0x41732c) splits the default name first (Borland `fnsplit`): if it
+  has a drive **and** a folder (flags 0x10 and 0x08) they become
+  `DAT_00491076` at once; the field gets name + extension only. After
+  either dialog succeeds, the chosen file's drive+folder are stored there
+  too (same test). It's never written to the profile: the folder is
+  remembered for the session.
+- The wave dialog's `DAT_004a2d90` starts empty (so the current folder,
+  which the widget dialogs set) and takes the chosen file's drive+folder
+  each time, without the test.
+- Save's validation callback 0x417322 always accepts ("%s\nThis file name
+  is not valid" is never shown).
+
+Port (`editor/file_dialog.rs`, `editor/file.rs`, `engine::files`): a
+lookalike of the Windows 95 Explorer-style box (comdlg32 template 1547's
+layout, read-only box hidden): "Look in"/"Save in" drop-down with the
+drives and the folder's way down, Up One Level, the List view (small
+icons in columns, horizontal scroll bar, folders first, dot files hidden),
+"File name" (selected at first, typing replaces it), "Files of type"/"Save
+as type", Open/Save, Cancel; double-click opens folders and takes files;
+Enter, Esc, Tab between name and list, arrows/Home/End/Backspace/a letter
+in the list; a typed pattern (`*.txt`) relists, a typed folder opens, a
+name without extension gets the default one (for Open only when the name
+as typed isn't a file). Messages as Windows 95's: "%s\nFile not found.
+\nPlease verify the correct file name was given.", "%s\nPath not found
+...", "%s already exists.\nDo you want to replace it?" (Yes/No). Files go
+through `platform::fs` (the `widget` crate's `PlatformFiles`), so the
+browser lists its storage. The CD's sample widgets show as the folder
+`FUNWIDGE` of a drive "Widget Workshop CD" (`CD:` in paths) in "Look in":
+the original ran from the CD, where `FUNWIDGE` was a subfolder of the
+folder it started in. Not drawn: the Create New Folder, List and Details
+buttons.
 
 ## 9. Drawing (what my area paints)
 

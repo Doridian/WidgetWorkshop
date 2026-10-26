@@ -87,6 +87,8 @@ pub const GAME_DIRS: [&str; 4] = ["WIN95/WIDGET", "WIN31/WIDGET", "WIDGET", ""];
 /// The puzzle file, next to `WIDGET.EXE` (`0x42d3fc`), or at the top of
 /// the overrides.
 pub const PUZZLE_FILE: &str = "WIDGET.PZL";
+/// The stand-alone widgets' runtime, beside the game (`0x4165a7`).
+pub const RUNTIME_FILE: &str = "WIDGET.SLF";
 /// The Windows 3.1 bitmap fonts the CD carries for its own setup.
 pub const FONT_DIR: &str = "WIN31/SVGA";
 
@@ -128,6 +130,8 @@ pub struct Assets {
     /// The puzzle file (`WIDGET.PZL`, `formats::pzl`), if found: the
     /// overrides', else the CD's.
     pub puzzles: Option<Vec<u8>>,
+    /// The stand-alone widgets' runtime (`WIDGET.SLF`, packed), if found.
+    pub runtime: Option<Vec<u8>>,
     /// The sounds made from resources so far.
     sounds: std::cell::RefCell<BTreeMap<u32, crate::gadget::SoundData>>,
 }
@@ -190,6 +194,7 @@ impl Assets {
             }
         }
         self.puzzles = cd.read(&join(dir, PUZZLE_FILE));
+        self.runtime = cd.read(&join(dir, RUNTIME_FILE));
         Ok(())
     }
 

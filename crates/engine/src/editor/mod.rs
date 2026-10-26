@@ -10,11 +10,14 @@
 
 pub mod about;
 pub mod dialog;
+mod file;
+pub mod file_dialog;
 pub mod menu;
 pub mod prompt;
 mod puzzle;
 pub mod puzzle_dialog;
 mod recorder;
+mod standalone;
 pub mod toolbar;
 pub mod tray;
 pub mod ui;
@@ -25,12 +28,15 @@ use formats::pe::{RT_CURSOR, RT_GROUP_CURSOR};
 
 use crate::assets::{Assets, Module};
 use crate::doc::{self, Document};
+use crate::files::{Files, StdFiles};
 use crate::gadget::{DrawCx, Gadget};
 use crate::gfx::{IRect, Pictures, Surface};
 use crate::puzzle::{Current, MemoryProfile, Profile};
 use crate::sim::{Env, Mic, NoMic, SoundCmd};
 
 use self::dialog::Dialog;
+use self::file::Step;
+use self::file_dialog::FileDialog;
 use self::menu::{Menu, Outcome, cmd};
 use self::prompt::{Answer, Prompt};
 use self::puzzle_dialog::PuzzleDialog;
@@ -180,8 +186,14 @@ enum Then {
     SaveAsPath(Option<Next>),
     /// "Revert to last saved version?"
     Revert,
-    /// Fit Work Area's squeeze (dialog 10014's question).
-    Fit,
+    /// Dialog 10014's question (without its template), then the save.
+    Fit(Option<Step>),
+    /// Dialog 10010's question (without its template), then the save.
+    MacFit(Step),
+    /// The stand-alone to write.
+    SaveInto,
+    /// The stand-alone to import.
+    ImportExe,
     /// "Reset Completed Puzzles"' question.
     ResetPuzzles,
     /// The wave file to import into Recorder `g`.
@@ -194,6 +206,7 @@ enum Next {
     New,
     Open,
     LoadPuzzle,
+    Import,
     Exit,
 }
 
@@ -249,7 +262,19 @@ pub struct Editor {
     pub mic: Box<dyn Mic>,
     recording: Option<recorder::Recording>,
     /// The folder the last wave file came from (`DAT_004a2d90`).
-    wav_dir: String,
+    wav_dir: Option<std::path::PathBuf>,
+    /// The player's files (opened, saved, browsed).
+    pub files: Box<dyn Files>,
+    /// The open file dialog and what its answer is for.
+    file_dialog: Option<(FileDialog, Then)>,
+    /// The folder the widget dialogs start in (`DAT_00491076`), once one
+    /// was chosen.
+    pub file_dir: Option<std::path::PathBuf>,
+    /// The widget came from a stand-alone `.EXE` (`cFile+0x101`): Revert
+    /// reads it from there.
+    from_exe: bool,
+    /// What follows dialog 10014 or 10010: a save.
+    fit_then: Option<Step>,
 }
 
 impl Editor {
@@ -308,7 +333,12 @@ impl Editor {
             profile: Box::new(MemoryProfile::default()),
             mic: Box::new(NoMic),
             recording: None,
-            wav_dir: String::new(),
+            wav_dir: None,
+            files: Box::new(StdFiles),
+            file_dialog: None,
+            file_dir: None,
+            from_exe: false,
+            fit_then: None,
         };
         let limits = e.doc.tray_limits.clone();
         e.tray.apply_limits(&limits);
@@ -328,7 +358,12 @@ impl Editor {
 
     /// The window's close button: Exit.
     pub fn quit(&mut self) {
-        if self.prompt.is_some() || self.dialog.is_some() || self.puzzle_dialog.is_some() || self.recording.is_some() {
+        if self.prompt.is_some()
+            || self.dialog.is_some()
+            || self.file_dialog.is_some()
+            || self.puzzle_dialog.is_some()
+            || self.recording.is_some()
+        {
             return;
         }
         self.confirm_save(Next::Exit);
@@ -397,6 +432,7 @@ impl Editor {
     fn over_view(&self, p: (i32, i32)) -> bool {
         if self.prompt.is_some()
             || self.dialog.is_some()
+            || self.file_dialog.is_some()
             || self.puzzle_dialog.is_some()
             || self.about.is_some()
             || self.menu.covers(&self.assets, p)
@@ -544,6 +580,7 @@ impl Editor {
         if self.drag.is_some()
             || self.prompt.is_some()
             || self.dialog.is_some()
+            || self.file_dialog.is_some()
             || self.puzzle_dialog.is_some()
             || self.about.is_some()
             || self.menu.is_open()
@@ -671,12 +708,13 @@ impl Editor {
         self.path = path;
         self.dirty = false;
         self.puzzle.active = false;
+        self.from_exe = false;
     }
 
-    /// Opens the widget file `path` (on disk, or one of the CD's samples by
-    /// name).
+    /// Opens the widget file `path` (the player's, one of the CD's samples
+    /// in its folder, `files::CD`, or one of those by name).
     pub fn open_path(&mut self, path: &str) -> bool {
-        let bytes = std::fs::read(path).ok().or_else(|| {
+        let bytes = self.fs().read(std::path::Path::new(path)).ok().or_else(|| {
             let name = std::path::Path::new(path).file_name()?.to_string_lossy().into_owned();
             self.assets
                 .samples
@@ -700,7 +738,8 @@ impl Editor {
     /// Writes the widget to `path`.
     fn write(&mut self, path: &str) -> bool {
         self.doc.tray_limits = self.tray.limits();
-        if std::fs::write(path, self.doc.save()).is_err() {
+        let bytes = self.doc.save();
+        if self.files.write(std::path::Path::new(path), &bytes).is_err() {
             self.alert(4);
             return false;
         }
@@ -754,39 +793,21 @@ impl Editor {
             Next::New => {
                 self.install(Document::new(), None);
             }
-            Next::Open => {
-                let name = self.path.clone().unwrap_or_else(|| "*.wgt".to_owned());
-                self.prompt = Some((
-                    Prompt::ask("Load widget", "Saved widgets (*.wgt) - file name:", &name),
-                    Then::OpenPath,
-                ));
-            }
+            // The field starts empty (`DAT_0049117a`).
+            Next::Open => self.ask_file(file_dialog::OPEN_WIDGET, "", Then::OpenPath),
             Next::LoadPuzzle => self.choose_puzzle(),
+            Next::Import => self.import_ask(),
             Next::Exit => self.finished = true,
         }
     }
 
-    /// File ▸ Save (`0x415a3b`); `false` if it didn't (yet). A puzzle
-    /// always goes to Save As.
-    fn save(&mut self, next: Option<Next>) -> bool {
-        if let Some(p) = self.path.clone().filter(|_| !self.puzzle.active) {
-            self.write(&p)
-        } else {
-            self.save_as(next);
-            false
+    /// A Yes / No / Cancel answer as a squeeze question's.
+    fn yes_no(a: Answer) -> Option<bool> {
+        match a {
+            Answer::Yes => Some(true),
+            Answer::No => Some(false),
+            _ => None,
         }
-    }
-
-    fn save_as(&mut self, next: Option<Next>) {
-        let name = if self.puzzle.active {
-            crate::puzzle::DOC_NAME.to_owned()
-        } else {
-            self.path.clone().unwrap_or_else(|| UNTITLED.to_owned())
-        };
-        self.prompt = Some((
-            Prompt::ask("Save Widget as", "Saved widgets (*.wgt) - file name:", &name),
-            Then::SaveAsPath(next),
-        ));
     }
 
     fn answer(&mut self, a: Answer, then: Then, input: Option<String>) {
@@ -795,10 +816,8 @@ impl Editor {
             Then::SaveChanges(next) => match a {
                 Answer::Yes => {
                     self.stop();
-                    // Load Puzzle goes on whatever the save did (`0x416f1a`).
-                    if self.save(Some(next)) || (next == Next::LoadPuzzle && self.prompt.is_none()) {
-                        self.after_save(next);
-                    }
+                    // `saved` goes on.
+                    self.save(Some(next));
                 }
                 Answer::No => self.after_save(next),
                 _ => {}
@@ -818,16 +837,14 @@ impl Editor {
                     }
                     _ => false,
                 };
-                if let Some(n) = next
-                    && (saved || n == Next::LoadPuzzle)
-                {
-                    self.after_save(n);
-                }
+                self.saved(next, saved);
             }
             Then::Revert => {
                 if a == Answer::Yes {
                     if self.puzzle.active {
                         self.revert_puzzle();
+                    } else if self.from_exe {
+                        self.revert_exe();
                     } else if let Some(p) = self.path.clone() {
                         self.open_path(&p);
                     }
@@ -841,10 +858,27 @@ impl Editor {
                     self.import_wav_path(g, &p);
                 }
             }
-            Then::Fit => {
-                if a == Answer::Yes {
-                    // The profile's `FitSize` isn't kept: 640×480.
-                    self.fit_to(dialog::fit_size(0));
+            Then::Fit(step) => {
+                self.fit_then = step;
+                let size = self.fit_size_index().or(Some(0));
+                self.fit_answered(false, Self::yes_no(a), size, false);
+            }
+            Then::MacFit(step) => {
+                self.fit_then = Some(step);
+                self.fit_answered(true, Self::yes_no(a), None, false);
+            }
+            Then::SaveInto => {
+                if a == Answer::Ok
+                    && let Some(p) = input.filter(|p| !p.is_empty())
+                {
+                    self.save_into_path(&p);
+                }
+            }
+            Then::ImportExe => {
+                if a == Answer::Ok
+                    && let Some(p) = input.filter(|p| !p.is_empty())
+                {
+                    self.import_path(&p);
                 }
             }
         }
@@ -898,9 +932,7 @@ impl Editor {
         match id {
             cmd::NEW => self.confirm_save(Next::New),
             cmd::OPEN => self.confirm_save(Next::Open),
-            cmd::SAVE => {
-                self.save(None);
-            }
+            cmd::SAVE => self.save(None),
             cmd::SAVE_AS => self.save_as(None),
             cmd::REVERT => {
                 // "Revert to original puzzle?" for a puzzle.
@@ -938,7 +970,9 @@ impl Editor {
             cmd::FIT => self.fit_work_area(),
             cmd::ABOUT => self.about = Some(about::About::new(self.now)),
             cmd::LOAD_PUZZLE => self.confirm_save(Next::LoadPuzzle),
-            cmd::IMPORT | cmd::SAVE_INTO | cmd::CONTENTS => {
+            cmd::IMPORT => self.confirm_save(Next::Import),
+            cmd::SAVE_INTO => self.save_into(),
+            cmd::CONTENTS => {
                 self.message("Not available in this version yet.", &[Answer::Ok], Then::Nothing);
             }
             // Printing: nothing to print to.
@@ -984,15 +1018,7 @@ impl Editor {
                 Then::Nothing,
             );
         } else {
-            match Dialog::fit(&self.assets) {
-                Some(d) => self.dialog = Some(d),
-                None => self.message(
-                    "Do you want to automatically squeeze the parts together so they'll all fit on your \
-                     (or a smaller) monitor?",
-                    &[Answer::Yes, Answer::No, Answer::Cancel],
-                    Then::Fit,
-                ),
-            }
+            self.fit_dialog(None);
         }
     }
 
@@ -1005,6 +1031,9 @@ impl Editor {
         self.env.cursor_screen = (x, y);
         if let Some(d) = &mut self.dialog {
             d.mouse_move(&self.assets, (x, y));
+        }
+        if let Some((d, _)) = &mut self.file_dialog {
+            d.mouse_move((x, y));
         }
         if let Some(d) = &mut self.puzzle_dialog {
             d.mouse_move((x, y));
@@ -1175,6 +1204,11 @@ impl Editor {
         }
         if let Some((pr, _)) = &mut self.prompt {
             pr.mouse_down(&self.assets, self.surface.bounds(), (x, y));
+            self.drag = Some(Drag::Modal);
+            return;
+        }
+        if self.file_dialog.is_some() {
+            self.file_mouse_down((x, y), dbl);
             self.drag = Some(Drag::Modal);
             return;
         }
@@ -1563,12 +1597,11 @@ impl Editor {
     fn modal_up(&mut self, x: i32, y: i32) {
         if let Some((mut pr, then)) = self.prompt.take() {
             match pr.mouse_up(&self.assets, self.surface.bounds(), (x, y)) {
-                Some(a) => {
-                    let input = pr.input.clone();
-                    self.answer(a, then, input);
-                }
+                Some(a) => self.answer(a, then, None),
                 None => self.prompt = Some((pr, then)),
             }
+        } else if self.file_dialog.is_some() {
+            self.file_mouse_up((x, y));
         } else if let Some(mut d) = self.dialog.take() {
             let r = d.mouse_up(&self.assets, (x, y));
             self.dialog_result(d, r);
@@ -1580,9 +1613,12 @@ impl Editor {
 
     /// The wheel scrolls the puzzle list; the worksheet doesn't scroll.
     pub fn wheel(&mut self, _dx: i32, dy: i32) {
-        if self.prompt.is_none()
-            && let Some(d) = &mut self.puzzle_dialog
-        {
+        if self.prompt.is_some() {
+            return;
+        }
+        if let Some((d, _)) = &mut self.file_dialog {
+            d.wheel(dy);
+        } else if let Some(d) = &mut self.puzzle_dialog {
             d.wheel(dy);
         }
     }
@@ -1623,14 +1659,16 @@ impl Editor {
                         gadget.behavior.reset(&mut gadget.core);
                     }
                     self.ui_sound(snd::DIALOG_CLOSE);
-                } else if let Some(size) = d.fit_choice() {
-                    self.fit_to(size);
+                } else if d.is_fit() {
+                    self.fit_answered(d.is_mac_fit(), Some(d.said_yes()), d.fit_choice(), d.remember());
                 }
             }
             dialog::Result::Cancel => {
                 if let Some(g) = d.gadget {
                     d.cancel(&mut self.doc.gadgets[g]);
                     self.ui_sound(snd::DIALOG_CLOSE);
+                } else if d.is_fit() {
+                    self.fit_answered(d.is_mac_fit(), None, None, d.remember());
                 }
             }
         }
@@ -1662,12 +1700,15 @@ impl Editor {
             return;
         }
         if let Some((pr, then)) = &mut self.prompt {
-            if let Some(a) = pr.key(vk, self.shift) {
-                let input = pr.input.clone();
+            if let Some(a) = pr.key(vk) {
                 let then = *then;
                 self.prompt = None;
-                self.answer(a, then, input);
+                self.answer(a, then, None);
             }
+            return;
+        }
+        if self.file_dialog.is_some() {
+            self.file_key(vk);
             return;
         }
         if let Some(mut d) = self.dialog.take() {
@@ -1817,6 +1858,7 @@ impl Editor {
                 if self.alt_alone
                     && self.prompt.is_none()
                     && self.dialog.is_none()
+                    && self.file_dialog.is_none()
                     && self.puzzle_dialog.is_none()
                     && self.drag.is_none()
                 {
@@ -1955,6 +1997,13 @@ impl Editor {
         }
         if let Some(a) = &self.about {
             a.draw(s, &self.assets, &self.pictures, view, self.now);
+        }
+        if let Some((d, _)) = &self.file_dialog {
+            let fs = crate::files::Fs {
+                files: self.files.as_ref(),
+                samples: &self.assets.samples,
+            };
+            d.draw(s, &self.assets, fs);
         }
         if let Some((p, _)) = &self.prompt {
             p.draw(s, &self.assets, frame);
@@ -2148,5 +2197,7 @@ fn floating(doc: &Document, dragged: Option<usize>, w: usize) -> Option<usize> {
     }
 }
 
+#[cfg(test)]
+mod file_tests;
 #[cfg(test)]
 mod tests;

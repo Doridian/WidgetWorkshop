@@ -10,6 +10,7 @@
 //! `--export` writes every resource there in that layout and quits.
 
 mod cd;
+mod files;
 mod profile;
 mod sound;
 
@@ -270,6 +271,7 @@ fn main() {
     if let Some(p) = profile::IniProfile::default_file() {
         editor.profile = Box::new(p);
     }
+    editor.files = Box::new(files::PlatformFiles);
     // `0x415018`: the random generator starts at `(u32)time(NULL)`.
     editor.env.rng = chrono::Utc::now().timestamp().rem_euclid(1 << 32).unsigned_abs();
     let audio = if args.no_audio {

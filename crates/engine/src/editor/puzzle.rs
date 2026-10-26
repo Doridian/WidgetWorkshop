@@ -509,10 +509,10 @@ mod tests {
         e.dirty = true;
         // Save goes to Save As, named "puzzle".
         e.command(cmd::SAVE);
-        let (p, _) = e.prompt.as_ref().unwrap();
-        assert_eq!(p.input.as_deref(), Some("puzzle"));
+        let (d, _) = e.file_dialog.as_mut().unwrap();
+        assert_eq!(d.name, "puzzle");
         let path = std::env::temp_dir().join(format!("widget-puzzle-{}.wgt", std::process::id()));
-        e.prompt.as_mut().unwrap().0.input = Some(path.display().to_string());
+        d.name = path.display().to_string();
         e.key_down(0x0d);
         let saved = std::fs::read(&path).unwrap();
         std::fs::remove_file(&path).unwrap();

@@ -659,6 +659,9 @@ Cancel, "Remember my answer", profile key `Fit`); Yes squeezes to that
 rect. (Dialog 10012, "fit worksheet elements to the rectangle W x H
 pixels", is unused.)
 
+(The profile details, No vs Cancel, and the port: editor-interaction.md
+5.5; the file dialogs and stand-alone widgets: 8.5, 8.6.)
+
 ### 7.3 Alerts (`cAlert`, `DAT_004a2668`)
 
 `0x410b5b(alert, n)` / `0x410bb8` (returns the answer): message box with

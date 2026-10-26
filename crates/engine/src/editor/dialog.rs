@@ -1,5 +1,6 @@
 //! The gadgets' settings dialogs (`cDialog`, docs/editor-interaction.md 6)
-//! and the Fit Work Area question (dialog 10014), drawn from their
+//! and the squeeze questions (Fit Work Area's dialog 10014, the save's
+//! Mac size check 10010), drawn from their
 //! `RT_DIALOG` templates in `WIDGET.EXE` in Windows 95's style: radio
 //! groups, check boxes, edit fields, drop-down lists, the gadget's
 //! picture and Doc's balloon (`cDialogDocItem`, docs/editor-layout.md
@@ -276,6 +277,8 @@ struct Doc {
 enum Kind {
     Settings,
     Fit,
+    /// Dialog 10010 (`CWrksFitDialog`).
+    MacFit,
 }
 
 /// An open dialog.
@@ -303,7 +306,7 @@ pub struct Dialog {
     long_text: bool,
     /// A control changed since the last preview.
     pub changed: bool,
-    /// Fit's answer: Yes.
+    /// Fit's answer: Yes (No and Cancel leave it).
     yes: bool,
     /// The settings as they were when it opened.
     original: Settings,
@@ -473,31 +476,75 @@ impl Dialog {
         Some(d)
     }
 
-    /// Dialog 10014, "squeeze to screen size", with 640×480 chosen.
+    /// Dialog 10014, "squeeze to screen size", with size `chosen` (the
+    /// profile's `FitSize`, `0x429ad6`; none past the five).
     #[must_use]
-    pub fn fit(assets: &Assets) -> Option<Dialog> {
+    pub fn fit(assets: &Assets, chosen: Option<usize>) -> Option<Dialog> {
         let t = Template::parse(assets.get(Module::Exe, RT_DIALOG, 10014)?).ok()?;
         let mut d = Dialog::build(assets, &t, Kind::Fit);
-        if let Some(c) = d.controls.iter_mut().find(|c| c.id == 101) {
+        if let Some(i) = chosen
+            && let Some(c) = d
+                .controls
+                .iter_mut()
+                .find(|c| c.id == 101 + u16::try_from(i).unwrap_or(0))
+        {
             c.checked = true;
         }
-        // Centred over the frame, as the message boxes are.
         Some(d)
     }
 
-    /// Fit's chosen size, if the answer was Yes.
+    /// Dialog 10010, the save's "too big to share with friends who have
+    /// the Macintosh version" (`0x42932b`), "Remember my answer" clear.
     #[must_use]
-    pub fn fit_choice(&self) -> Option<(i32, i32)> {
-        if self.kind != Kind::Fit || !self.yes {
+    pub fn mac_fit(assets: &Assets) -> Option<Dialog> {
+        let t = Template::parse(assets.get(Module::Exe, RT_DIALOG, 10010)?).ok()?;
+        Some(Dialog::build(assets, &t, Kind::MacFit))
+    }
+
+    /// Whether this is 10014 or 10010 (a squeeze question).
+    #[must_use]
+    pub fn is_fit(&self) -> bool {
+        self.kind != Kind::Settings
+    }
+
+    /// Whether this is 10010.
+    #[must_use]
+    pub fn is_mac_fit(&self) -> bool {
+        self.kind == Kind::MacFit
+    }
+
+    /// A squeeze question's answer was Yes.
+    #[must_use]
+    pub fn said_yes(&self) -> bool {
+        self.yes
+    }
+
+    /// 10014's size chosen (radio buttons 101..105).
+    #[must_use]
+    pub fn fit_choice(&self) -> Option<usize> {
+        if self.kind != Kind::Fit {
             return None;
         }
-        let i = self
-            .controls
+        self.controls
             .iter()
             .filter(|c| matches!(c.ctl, Ctl::Radio(_)))
             .position(|c| c.checked)
-            .unwrap_or(0);
-        Some(fit_size(i))
+    }
+
+    /// 10010's "Remember my answer" (check box 13).
+    #[must_use]
+    pub fn remember(&self) -> bool {
+        self.controls.iter().any(|c| c.id == 13 && c.checked)
+    }
+
+    /// Yes on a squeeze question: 10014 takes it only with a size chosen
+    /// (`0x4298b9` falls through without one).
+    fn fit_yes(&mut self) -> Result {
+        if self.kind == Kind::Fit && self.fit_choice().is_none() {
+            return Result::Open;
+        }
+        self.yes = true;
+        Result::Ok
     }
 
     fn of_kind<'a>(&'a self, f: impl Fn(&Ctl) -> bool + 'a) -> impl Iterator<Item = usize> + 'a {
@@ -865,12 +912,11 @@ impl Dialog {
                 }
             }
             Ctl::Push => match (self.kind, id) {
-                (Kind::Settings, 1) => return Result::Ok,
-                (Kind::Fit, 6) => {
-                    self.yes = true;
-                    return Result::Ok;
-                }
-                (Kind::Settings, 2) | (Kind::Fit, 2 | 7) => return Result::Cancel,
+                // A squeeze question's No: on with the save, unsqueezed
+                // (`0x429591` returns `answer != IDCANCEL`).
+                (Kind::Settings, 1) | (Kind::Fit | Kind::MacFit, 7) => return Result::Ok,
+                (Kind::Fit | Kind::MacFit, 6) => return self.fit_yes(),
+                (_, 2) => return Result::Cancel,
                 // The parts' own buttons ("Clear Text", "Record a
                 // Sound"...): the handler (`+0x2f`).
                 (Kind::Settings, _) => return self.follow(i),
@@ -899,10 +945,7 @@ impl Dialog {
             0x0d if !multiline => {
                 return match self.kind {
                     Kind::Settings => Result::Ok,
-                    Kind::Fit => {
-                        self.yes = true;
-                        Result::Ok
-                    }
+                    Kind::Fit | Kind::MacFit => self.fit_yes(),
                 };
             }
             0x09 => {
@@ -961,7 +1004,7 @@ impl Dialog {
             let r = c.rect.offset(ox, oy);
             match &c.ctl {
                 Ctl::Push => {
-                    let default = self.kind == Kind::Settings && c.id == 1 || self.kind == Kind::Fit && c.id == 6;
+                    let default = self.kind == Kind::Settings && c.id == 1 || self.kind != Kind::Settings && c.id == 6;
                     ui::button(s, font, r, &c.text, self.pressed == Some(i), default, !c.disabled);
                 }
                 Ctl::Check | Ctl::Radio(_) => {
@@ -1305,7 +1348,7 @@ fn radio(s: &mut Surface, x: i32, y: i32, on: bool, pressed: bool) {
 }
 
 /// The drop-down arrow (7×4).
-fn arrow(s: &mut Surface, x: i32, y: i32) {
+pub(super) fn arrow(s: &mut Surface, x: i32, y: i32) {
     for d in 0..4 {
         s.fill(IRect::new(x + d, y + d, x + 7 - d, y + d + 1), ui::BLACK);
     }

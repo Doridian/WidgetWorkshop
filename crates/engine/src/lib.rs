@@ -5,6 +5,7 @@
 pub mod assets;
 pub mod doc;
 pub mod editor;
+pub mod files;
 pub mod gadget;
 pub mod gadgets;
 pub mod gfx;

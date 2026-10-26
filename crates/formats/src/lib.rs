@@ -9,6 +9,7 @@ pub mod hlp;
 pub mod hr;
 pub mod ini;
 pub mod iso;
+pub mod lz;
 pub mod ne;
 pub mod pe;
 pub mod pzl;
