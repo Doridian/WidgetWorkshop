@@ -14,6 +14,7 @@ pub mod menu;
 pub mod prompt;
 mod puzzle;
 pub mod puzzle_dialog;
+mod recorder;
 pub mod toolbar;
 pub mod tray;
 pub mod ui;
@@ -27,7 +28,7 @@ use crate::doc::{self, Document};
 use crate::gadget::{DrawCx, Gadget};
 use crate::gfx::{IRect, Pictures, Surface};
 use crate::puzzle::{Current, MemoryProfile, Profile};
-use crate::sim::{Env, SoundCmd};
+use crate::sim::{Env, Mic, NoMic, SoundCmd};
 
 use self::dialog::Dialog;
 use self::menu::{Menu, Outcome, cmd};
@@ -183,6 +184,8 @@ enum Then {
     Fit,
     /// "Reset Completed Puzzles"' question.
     ResetPuzzles,
+    /// The wave file to import into Recorder `g`.
+    ImportWav(usize),
 }
 
 /// What comes after the "Save changes?" question.
@@ -242,6 +245,11 @@ pub struct Editor {
     puzzle_dialog: Option<PuzzleDialog>,
     /// Where the solved puzzles are kept (`WIDGET.INI`'s section).
     pub profile: Box<dyn Profile>,
+    /// The sound input (the Recorder's and the Sound Switch's).
+    pub mic: Box<dyn Mic>,
+    recording: Option<recorder::Recording>,
+    /// The folder the last wave file came from (`DAT_004a2d90`).
+    wav_dir: String,
 }
 
 impl Editor {
@@ -292,6 +300,9 @@ impl Editor {
             puzzle: Current::default(),
             puzzle_dialog: None,
             profile: Box::new(MemoryProfile::default()),
+            mic: Box::new(NoMic),
+            recording: None,
+            wav_dir: String::new(),
         };
         let limits = e.doc.tray_limits.clone();
         e.tray.apply_limits(&limits);
@@ -311,7 +322,7 @@ impl Editor {
 
     /// The window's close button: Exit.
     pub fn quit(&mut self) {
-        if self.prompt.is_some() || self.dialog.is_some() || self.puzzle_dialog.is_some() {
+        if self.prompt.is_some() || self.dialog.is_some() || self.puzzle_dialog.is_some() || self.recording.is_some() {
             return;
         }
         self.confirm_save(Next::Exit);
@@ -459,6 +470,9 @@ impl Editor {
         self.running = false;
         self.env.sounds.push(SoundCmd::StopAll);
         self.doc.stop();
+        // The Sound Switches' reset (`0x452c52`): `listen_stop`.
+        self.env.listen.stop();
+        self.poll_listen();
         self.env.exclusive = None;
         self.env.mouse_down = false;
         self.ui_sound(snd::STOP);
@@ -472,11 +486,15 @@ impl Editor {
     pub fn update(&mut self, ms: u64, local_time: (u32, u32, u32)) {
         self.now += ms;
         self.env.local_time = local_time;
+        if self.recording.is_some() {
+            self.poll_recording();
+        }
         if !self.running {
             self.idle();
             self.update_menu();
             return;
         }
+        self.poll_listen();
         self.ms_rest += ms * TICKS_PER_SECOND;
         // At most a few ticks to catch up after a stall.
         let mut n = 0;
@@ -810,6 +828,13 @@ impl Editor {
                 }
             }
             Then::ResetPuzzles => self.reset_puzzles(a),
+            Then::ImportWav(g) => {
+                if a == Answer::Ok
+                    && let Some(p) = input.filter(|p| !p.is_empty())
+                {
+                    self.import_wav_path(g, &p);
+                }
+            }
             Then::Fit => {
                 if a == Answer::Yes {
                     // The profile's `FitSize` isn't kept: 640×480.
@@ -1121,6 +1146,10 @@ impl Editor {
         let p = Self::to_view((x, y));
         self.env.mouse = p;
         self.env.cursor_screen = (x, y);
+        if self.recording.is_some() {
+            // The original's recording blocks the program.
+            return;
+        }
         if self.about.take().is_some() {
             // Any button closes the About window (`0x415300`).
             return;
@@ -1565,17 +1594,23 @@ impl Editor {
     /// A dialog's state after an input.
     fn dialog_result(&mut self, mut d: Dialog, r: dialog::Result) {
         match r {
-            dialog::Result::Open => {
+            dialog::Result::Open | dialog::Result::Record | dialog::Result::Import => {
                 if let Some(g) = d.gadget {
-                    d.preview(&mut self.doc.gadgets[g]);
+                    d.preview(&mut self.doc.gadgets[g], &self.assets);
                 }
+                let g = d.gadget;
                 self.dialog = Some(d);
+                match (r, g) {
+                    (dialog::Result::Record, Some(g)) => self.start_recording(g),
+                    (dialog::Result::Import, Some(g)) => self.ask_wav(g),
+                    _ => {}
+                }
             }
             dialog::Result::Ok => {
                 if let Some(g) = d.gadget {
                     self.snapshot();
                     let gadget = &mut self.doc.gadgets[g];
-                    d.apply(gadget);
+                    d.apply(gadget, &self.assets);
                     gadget.behavior.layout(&mut gadget.core, &self.assets);
                     if gadget.core.tag == LABEL {
                         // The Label's read-back lays it out again and resets.
@@ -1610,6 +1645,9 @@ impl Editor {
                 return;
             }
             _ => self.alt_alone = false,
+        }
+        if self.recording.is_some() {
+            return;
         }
         if self.about.is_some() {
             if matches!(vk, 0x20 | VK_ESCAPE) {

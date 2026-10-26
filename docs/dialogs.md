@@ -81,7 +81,8 @@ button or a check box.
 
 The link does **not** enable or disable anything. Earlier docs guessed
 that it did (io.md §4, logic.md §11/§12 and the open question at the end
-of logic.md, sound-time.md §6/§10, science.md "Settings dialogs"). No
+of logic.md, science.md "Settings dialogs"; sound-time.md §6/§10 have
+been corrected). No
 code in the dialog ever disables a settings control. The only
 `EnableWindow(FALSE)` that gadget code calls is the Recorder's error path
 (§4.2). What the link does is **select the target when the user works
@@ -444,7 +445,7 @@ unchecks the boxes when "Play with No Changes" is chosen.
 ### 3.6 cTextLine `TxLn` "Message List" (dialog 2028)
 
 * Push button 2 = 113 "Clear All Text" → `0x45b6e0`:
-  `for n in 0..3: 0x41c728(dlg, n, "")`.
+  `for n in 0, 1, 2, 3: 0x41c728(dlg, n, "")` (all four edits).
 * No 0x48/0x4c override. Edits 106/108/110/112, filter `"33"` (max 33
   chars).
 
@@ -541,8 +542,8 @@ What this means for an implementation:
   dialog, the gadget is marked broken, and the message box appears.
   `+0x140` stays set until a later successful record or import (each of
   which clears it). The buffer keeps its previous contents on error.
-  (sound-time.md §7 says nothing sets `+0x140`. This catch handler
-  does.)
+  (sound-time.md §7 used to say nothing sets `+0x140`; it now cites
+  this catch handler.)
 * `n == 0xffff` (an aborted recording, -1 truncated) would keep the old
   buffer without an error. It can't happen because the callback never
   aborts.
@@ -684,6 +685,16 @@ half-duplex. A modern port does not have to.
    Import (the WAV reader above), both writing to the gadget
    immediately and surviving Cancel.
 6. **Progress bar** control 160 (§1.6).
+
+Port status: all six are in. Links, validation, the push-button
+handlers and the progress bar are in `crates/engine/src/editor/dialog.rs`
+(`links`, `handler`, `Dialog::follow`, `Filter`); Record and Import in
+`editor/recorder.rs`, through the `sim::Mic` trait (the platform's
+`audio::input::Capture` in the game, a fake in the tests). Recording is a
+modal state of the editor rather than a blocking loop, and gives up
+after 3 s without samples where the original would hang. The file
+dialog is the typed-path box Open and Save use. The Sound Switch's
+listening (§4.4) goes through the same `Mic` (`sim::Listen`).
 
 ---
 

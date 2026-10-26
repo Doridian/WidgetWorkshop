@@ -1,13 +1,16 @@
 //! Sound output: the [`Engine`] renders what the game plays, and a `cpal`
 //! stream (the `audio-device` feature) pulls it to the sound card. With no
 //! device (or without the feature) [`Audio`] is silent and every call does
-//! nothing, so the game runs the same headless.
+//! nothing, so the game runs the same headless. [`input`] captures the
+//! microphone the same way.
 
 pub mod engine;
+pub mod input;
 
 use std::sync::{Arc, Mutex, PoisonError};
 
 pub use engine::{Engine, Play, Sound, VoiceId};
+pub use input::Capture;
 
 /// The game's sound output.
 pub struct Audio {

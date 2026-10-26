@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use crate::assets::{Module, rt};
 use crate::gadget::{Behavior, Core, DrawCx, Object, SoundData, Tag, Value};
-use crate::sim::Io;
+use crate::sim::{Io, LISTEN_LEN, SoundCmd};
 
 macro_rules! any {
     () => {
@@ -593,8 +593,14 @@ impl TapePlayer {
         Ok(())
     }
 
-    // TODO: "Record a Sound" (`0x459db3`): 40000 bytes from the microphone
-    // at 11025 Hz, 8-bit mono, the rest silence; needs microphone input.
+    /// Replaces the recording with `data` (the dialog's "Record a Sound",
+    /// `0x459db3`): up to 40000 samples, the rest silence (0x80).
+    pub fn record(&mut self, data: &[u8]) {
+        let mut s = vec![0x80; TAPE_LEN];
+        let n = data.len().min(TAPE_LEN);
+        s[..n].copy_from_slice(&data[..n]);
+        self.samples = s.into();
+    }
 
     fn sound(&self) -> SoundData {
         SoundData {
@@ -1009,9 +1015,13 @@ impl SoundSwitch {
                     .unwrap_or(SWITCH_THRESHOLDS[2]);
                 let n = buf
                     .iter()
-                    .take(22000)
+                    .take(LISTEN_LEN)
                     .filter(|&&b| (i32::from(b) - 128).unsigned_abs() as u8 > t)
                     .count();
+                // Started over before the buffer is full.
+                if pos > 19800 {
+                    io.env.listen.start();
+                }
                 (n > 100, false)
             }
             _ => (false, true),
@@ -1019,6 +1029,7 @@ impl SoundSwitch {
         if on != core.state || err != core.broken {
             core.state = on;
             self.done = true;
+            io.env.listen.stop();
             if on {
                 io.fire(core, 0);
             }
@@ -1047,13 +1058,19 @@ impl Behavior for SoundSwitch {
     fn start(&mut self, core: &mut Core, io: &mut Io<'_>) {
         io.base_start(core);
         self.done = false;
+        // `DAT_0049b1d8`: the first switch closes the output and listens.
+        if !io.env.listen.on {
+            io.env.sounds.push(SoundCmd::StopAll);
+            io.env.listen.start();
+        }
     }
 
     fn tick(&mut self, core: &mut Core, io: &mut Io<'_>) {
-        // TODO: microphone input (`0x43e2db`, 11025 Hz 8-bit mono into a
-        // 22000-byte buffer, restarted past 19800 bytes). Without one the
-        // original reads an error: broken, then on.
-        self.listen(core, io, None);
+        // `listen_pos` and the buffer; no device reads an error: broken,
+        // then on.
+        let l = &io.env.listen;
+        let heard = l.pos.map(|p| (p, l.buf.clone()));
+        self.listen(core, io, heard.as_ref().map(|(p, b)| (*p, &b[..])));
     }
 
     fn has_bool(&self, _core: &Core, _knot: usize) -> bool {
@@ -1243,6 +1260,89 @@ mod tests {
         wav[0x22] = 16;
         assert_eq!(import_wav(&wav), Err(WavError::Not8Bit));
         assert_eq!(import_wav(b"nope"), Err(WavError::BadFormat));
+    }
+
+    /// A 44-byte wave header: `channels`, `rate`, `bits`.
+    pub(crate) fn wav(channels: u16, rate: u32, bits: u16, data: &[u8]) -> Vec<u8> {
+        let mut w = Vec::new();
+        w.extend_from_slice(b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0");
+        w.extend_from_slice(&channels.to_le_bytes());
+        w.extend_from_slice(&rate.to_le_bytes());
+        w.extend_from_slice(&[0; 6]);
+        w.extend_from_slice(&bits.to_le_bytes());
+        w.extend_from_slice(b"data\0\0\0\0");
+        w.extend_from_slice(data);
+        w
+    }
+
+    #[test]
+    fn wav_import_rates_channels_and_errors() {
+        // Mono 11025: copied as is, up to 40000, the rest silence.
+        let data: Vec<u8> = (0..50000u32).map(|i| (i % 251) as u8).collect();
+        let s = import_wav(&wav(1, 11025, 8, &data)).unwrap();
+        assert_eq!(s, data[..TAPE_LEN]);
+        let s = import_wav(&wav(1, 11025, 8, &[1, 2, 3])).unwrap();
+        assert_eq!(&s[..4], &[1, 2, 3, 0x80]);
+        // 32000: the last of each three; a group cut short is dropped.
+        let s = import_wav(&wav(1, 32000, 8, &[1, 2, 3, 4, 5, 6, 7, 8])).unwrap();
+        assert_eq!(&s[..3], &[3, 6, 0x80]);
+        // 44100 stereo: the right channel of every fourth frame.
+        let frames: Vec<u8> = (0..16).collect();
+        let s = import_wav(&wav(2, 44100, 8, &frames)).unwrap();
+        assert_eq!(&s[..3], &[7, 15, 0x80]);
+        // 21999 isn't reduced; three channels count as one.
+        let s = import_wav(&wav(3, 21999, 8, &[9, 8])).unwrap();
+        assert_eq!(&s[..3], &[9, 8, 0x80]);
+        // The header: short, not RIFF, not WAVE, no "fmt ", 16 bits.
+        assert_eq!(import_wav(&wav(1, 11025, 8, &[])[..43]), Err(WavError::BadFormat));
+        let mut w = wav(1, 11025, 8, &[1]);
+        w[0] = b'X';
+        assert_eq!(import_wav(&w), Err(WavError::BadFormat));
+        let mut w = wav(1, 11025, 8, &[1]);
+        w[8] = b'X';
+        assert_eq!(import_wav(&w), Err(WavError::BadFormat));
+        let mut w = wav(1, 11025, 8, &[1]);
+        w[12] = b'X';
+        assert_eq!(import_wav(&w), Err(WavError::BadFormat));
+        assert_eq!(import_wav(&wav(1, 11025, 16, &[1, 2])), Err(WavError::Not8Bit));
+        // An import clears the broken flag; a failed one leaves it.
+        let mut core = Core::new(Tag::new(b"Tape"), 2026, 1037);
+        let mut t = TapePlayer::default();
+        core.broken = true;
+        assert!(t.import(&mut core, b"nope").is_err());
+        assert!(core.broken);
+        t.import(&mut core, &wav(1, 11025, 8, &[5])).unwrap();
+        assert!(!core.broken);
+        assert_eq!(t.samples()[..2], [5, 0x80]);
+        // A recording: what came, then silence.
+        t.record(&[1, 2]);
+        assert_eq!(t.samples()[..3], [1, 2, 0x80]);
+        assert_eq!(t.samples().len(), TAPE_LEN);
+    }
+
+    #[test]
+    fn sound_switch_listens_through_the_env() {
+        let assets = Assets::default();
+        let mut env = Env::default();
+        let mut core = Core::new(Tag::new(b"SdSw"), 2037, 1045);
+        core.id = 1;
+        let mut s = SoundSwitch::default();
+        // The first switch closes the output and starts the listening.
+        s.start(&mut core, &mut io(&assets, &[], &mut [], &mut env));
+        assert!(env.listen.on && env.listen.pos == Some(0));
+        assert!(env.sounds.contains(&SoundCmd::StopAll));
+        // Quiet past 19800 bytes: started over.
+        env.listen.feed(&vec![0x80; 19801]);
+        s.tick(&mut core, &mut io(&assets, &[], &mut [], &mut env));
+        assert!(!core.state && env.listen.pos == Some(0) && env.listen.on);
+        // A sound: on, and the listening stops.
+        env.listen.feed(&[0xff; 101]);
+        s.tick(&mut core, &mut io(&assets, &[], &mut [], &mut env));
+        assert!(core.state && !env.listen.on);
+        // Past the end of the buffer the samples are lost.
+        env.listen.start();
+        env.listen.feed(&vec![0x80; 30000]);
+        assert_eq!(env.listen.pos, Some(22000));
     }
 
     #[test]

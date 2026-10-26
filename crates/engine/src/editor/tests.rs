@@ -4,6 +4,7 @@
 use super::*;
 use crate::assets::Dir;
 use crate::gadget::Tag;
+use crate::gadgets::sound_time::TapePlayer;
 
 fn editor() -> Option<Editor> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../orig");
@@ -243,4 +244,262 @@ fn the_tray_is_laid_out_as_the_original() {
     );
     let label = e.tray.folders[5][0][0];
     assert_eq!((label.index, label.rect.y0, label.rect.y1), (64, 15, 24));
+}
+
+/// A microphone that gives `chunks`, one per read.
+struct FakeMic {
+    start: bool,
+    chunks: std::collections::VecDeque<std::result::Result<Vec<u8>, ()>>,
+    stops: std::rc::Rc<std::cell::Cell<u32>>,
+}
+
+impl FakeMic {
+    fn new(chunks: impl IntoIterator<Item = std::result::Result<Vec<u8>, ()>>) -> FakeMic {
+        FakeMic {
+            start: true,
+            chunks: chunks.into_iter().collect(),
+            stops: std::rc::Rc::default(),
+        }
+    }
+}
+
+impl Mic for FakeMic {
+    fn start(&mut self) -> std::result::Result<(), String> {
+        if self.start { Ok(()) } else { Err("no".into()) }
+    }
+
+    fn read(&mut self, out: &mut Vec<u8>) -> std::result::Result<(), String> {
+        match self.chunks.pop_front() {
+            Some(Ok(c)) => out.extend(c),
+            Some(Err(())) => return Err("failed".into()),
+            None => {}
+        }
+        Ok(())
+    }
+
+    fn stop(&mut self) {
+        self.stops.set(self.stops.get() + 1);
+    }
+}
+
+/// A click on control `id` of the open dialog.
+fn click_control(e: &mut Editor, id: u16) {
+    let (x, y) = e.dialog.as_ref().unwrap().centre_of(id).unwrap();
+    e.mouse_move(x, y);
+    e.mouse_down(x, y, Button::Left);
+    e.mouse_up(x, y, Button::Left);
+}
+
+fn tape_samples(e: &Editor, g: usize) -> Vec<u8> {
+    let t = e.doc.gadgets[g].behavior.as_any().downcast_ref::<TapePlayer>().unwrap();
+    t.samples().to_vec()
+}
+
+fn prompt_text(e: &Editor) -> Option<String> {
+    e.prompt.as_ref().map(|(p, _)| p.text.clone())
+}
+
+#[test]
+fn recorder_records_into_the_part_for_good() {
+    let Some(mut e) = editor() else { return };
+    let g = add(&mut e, *b"Tape", 100, 200);
+    e.doc.gadgets[g].core.broken = true;
+    let data: Vec<u8> = (0..45000u32).map(|i| u8::try_from(i % 200).unwrap()).collect();
+    let mic = FakeMic::new(data.chunks(10000).map(|c| Ok(c.to_vec())));
+    let stops = mic.stops.clone();
+    e.mic = Box::new(mic);
+    e.open_settings(g);
+    e.take_sounds();
+    click_control(&mut e, 106);
+    assert!(e.recording());
+    assert!(!e.doc.gadgets[g].core.broken);
+    // The output stops while recording.
+    assert!(e.take_sounds().contains(&SoundCmd::StopAll));
+    // Held up: Esc and clicks do nothing.
+    e.key_down(0x1b);
+    e.key_up(0x1b);
+    click_control(&mut e, 2);
+    assert!(e.dialog.is_some());
+    e.update(16, (0, 0, 0));
+    assert_eq!(e.dialog.as_ref().unwrap().progress(), 26);
+    for _ in 0..3 {
+        e.update(16, (0, 0, 0));
+    }
+    assert!(!e.recording());
+    assert_eq!(stops.get(), 1);
+    assert_eq!(e.dialog.as_ref().unwrap().progress(), 100);
+    assert_eq!(tape_samples(&e, g), data[..40000]);
+    // Cancel doesn't take it back.
+    click_control(&mut e, 2);
+    assert!(e.dialog.is_none());
+    assert_eq!(tape_samples(&e, g), data[..40000]);
+    // Nor does Undo after OK: the snapshot comes after the recording.
+    e.open_settings(g);
+    e.mic = Box::new(FakeMic::new([Ok(vec![7; 40000])]));
+    click_control(&mut e, 106);
+    e.update(16, (0, 0, 0));
+    click_control(&mut e, 1);
+    e.undo();
+    let g = e.doc.gadgets.iter().position(|x| x.core.tag == Tag(*b"Tape")).unwrap();
+    assert_eq!(tape_samples(&e, g), vec![7; 40000]);
+}
+
+#[test]
+fn recorder_errors_break_the_part_and_disable_record() {
+    let Some(mut e) = editor() else { return };
+    let g = add(&mut e, *b"Tape", 100, 200);
+    let before = tape_samples(&e, g);
+    // No input device: at once.
+    e.open_settings(g);
+    click_control(&mut e, 106);
+    assert!(!e.recording());
+    assert!(e.doc.gadgets[g].core.broken);
+    assert_eq!(
+        prompt_text(&e).as_deref(),
+        Some("There was an error while recording sound")
+    );
+    let d = e.dialog.as_ref().unwrap();
+    assert!(!d.button_enabled(2) && d.button_enabled(3));
+    assert_eq!(d.progress(), 100);
+    e.key_down(0x0d);
+    assert!(e.prompt.is_none() && e.dialog.is_some());
+    // Disabled for the rest of the dialog.
+    click_control(&mut e, 106);
+    assert!(e.prompt.is_none());
+    click_control(&mut e, 2);
+    // A device that fails half way, or stops giving samples.
+    for mic in [
+        FakeMic::new([Ok(vec![1; 100]), Err(())]),
+        FakeMic::new([Ok(vec![1; 100])]),
+    ] {
+        e.doc.gadgets[g].core.broken = false;
+        e.mic = Box::new(mic);
+        e.open_settings(g);
+        click_control(&mut e, 106);
+        assert!(e.recording());
+        for _ in 0..5 {
+            e.update(1000, (0, 0, 0));
+        }
+        assert!(!e.recording());
+        assert!(e.doc.gadgets[g].core.broken);
+        assert!(e.prompt.is_some());
+        e.key_down(0x0d);
+        click_control(&mut e, 2);
+    }
+    // The buffer keeps what it had.
+    assert_eq!(tape_samples(&e, g), before);
+}
+
+#[test]
+fn recorder_imports_wave_files() {
+    let Some(mut e) = editor() else { return };
+    let g = add(&mut e, *b"Tape", 100, 200);
+    let dir = std::env::temp_dir().join(format!("ww-import-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let wav = |bits: u16, data: &[u8]| {
+        let mut w = b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0".to_vec();
+        w.extend_from_slice(&11025u32.to_le_bytes());
+        w.extend_from_slice(&[0; 6]);
+        w.extend_from_slice(&bits.to_le_bytes());
+        w.extend_from_slice(b"data\0\0\0\0");
+        w.extend_from_slice(data);
+        w
+    };
+    let good = dir.join("good.wav");
+    std::fs::write(&good, wav(8, &[1, 2, 3])).unwrap();
+    let deep = dir.join("deep.wav");
+    std::fs::write(&deep, wav(16, &[1, 2])).unwrap();
+    let bad = dir.join("bad.wav");
+    std::fs::write(&bad, b"not a wave file at all, but long enough to read").unwrap();
+    let missing = dir.join("missing.wav");
+    let import = |e: &mut Editor, path: &std::path::Path, answer: u16| {
+        click_control(e, 107);
+        let (p, then) = e.prompt.as_mut().unwrap();
+        assert_eq!(*then, Then::ImportWav(g));
+        p.input = Some(path.display().to_string());
+        e.key_down(answer);
+    };
+    e.open_settings(g);
+    e.doc.gadgets[g].core.broken = true;
+    // Cancelled: nothing.
+    import(&mut e, &good, 0x1b);
+    assert!(e.doc.gadgets[g].core.broken && e.prompt.is_none());
+    import(&mut e, &good, 0x0d);
+    assert!(!e.doc.gadgets[g].core.broken && e.prompt.is_none());
+    assert_eq!(tape_samples(&e, g)[..4], [1, 2, 3, 0x80]);
+    // The next one starts in the same folder.
+    click_control(&mut e, 107);
+    let start = e.prompt.as_ref().unwrap().0.input.clone().unwrap();
+    assert!(start.starts_with(&dir.display().to_string()) && start.ends_with("*.wav"));
+    e.key_down(0x1b);
+    for (path, msg) in [
+        (&missing, "Can`t open file"),
+        (&deep, "Can't import non-8 bit sound"),
+        (&bad, "Bad file format"),
+    ] {
+        import(&mut e, path, 0x0d);
+        assert_eq!(prompt_text(&e), Some(format!("{}\n{msg}", path.display())));
+        e.key_down(0x0d);
+        assert_eq!(tape_samples(&e, g)[..4], [1, 2, 3, 0x80]);
+    }
+    // And Cancel keeps it.
+    click_control(&mut e, 2);
+    assert_eq!(tape_samples(&e, g)[..4], [1, 2, 3, 0x80]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn label_ok_measures_the_new_text() {
+    let Some(mut e) = editor() else { return };
+    let g = add(&mut e, *b"TxLb", 100, 200);
+    let before = e.doc.gadgets[g].core.bounds;
+    e.open_settings(g);
+    click_control(&mut e, 106);
+    for _ in 0..10 {
+        e.key_down(u16::from(b'W'));
+    }
+    // Clear Text, then the text again; then OK.
+    click_control(&mut e, 109);
+    for _ in 0..20 {
+        e.key_down(u16::from(b'W'));
+    }
+    click_control(&mut e, 1);
+    assert!(e.dialog.is_none());
+    let after = e.doc.gadgets[g].core.bounds;
+    if ui::font(&e.assets).is_some() {
+        assert!(
+            after.right - after.left > before.right - before.left,
+            "{before:?} {after:?}"
+        );
+    }
+    assert_eq!(e.doc.gadgets[g].core.settings.label(0), b"wwwwwwwwwwwwwwwwwwww");
+}
+
+#[test]
+fn sound_switch_hears_the_microphone() {
+    let Some(mut e) = editor() else { return };
+    let g = add(&mut e, *b"SdSw", 100, 200);
+    let mic = FakeMic::new([Ok(vec![0x80; 1000]), Ok(vec![0xff; 200])]);
+    let stops = mic.stops.clone();
+    e.mic = Box::new(mic);
+    e.run();
+    assert!(e.take_sounds().contains(&SoundCmd::StopAll));
+    e.update(20, (0, 0, 0));
+    assert!(!e.doc.gadgets[g].core.state);
+    for _ in 0..3 {
+        e.update(20, (0, 0, 0));
+    }
+    assert!(e.doc.gadgets[g].core.state && !e.doc.gadgets[g].core.broken);
+    // Done listening: the microphone closed.
+    assert_eq!(stops.get(), 1);
+    e.stop();
+    assert!(!e.env.listen.on);
+    // Without one: broken, then on.
+    e.mic = Box::new(NoMic);
+    e.run();
+    e.update(20, (0, 0, 0));
+    assert!(e.doc.gadgets[g].core.broken && !e.doc.gadgets[g].core.state);
+    e.update(20, (0, 0, 0));
+    assert!(e.doc.gadgets[g].core.state);
+    e.stop();
 }

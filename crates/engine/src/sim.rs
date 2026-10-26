@@ -42,6 +42,91 @@ pub enum SoundCmd {
     StopAll,
 }
 
+/// The rate and format of sound input (`0x496a78`): unsigned 8-bit mono.
+pub const MIC_RATE: u32 = 11025;
+
+/// Sound input, as the original's `waveIn` (docs/dialogs.md 4.4): the
+/// platform's microphone, unsigned 8-bit mono at [`MIC_RATE`].
+pub trait Mic {
+    /// Starts a capture (`waveInOpen`, `waveInStart`).
+    ///
+    /// # Errors
+    /// No input device, or it won't open.
+    fn start(&mut self) -> Result<(), String>;
+
+    /// Appends to `out` what was captured since the last call.
+    ///
+    /// # Errors
+    /// The device failed.
+    fn read(&mut self, out: &mut Vec<u8>) -> Result<(), String>;
+
+    /// Ends the capture (`waveInStop`, `waveInClose`).
+    fn stop(&mut self);
+}
+
+/// The Sound Switches' listening buffer's size (about 2 s).
+pub const LISTEN_LEN: usize = 22000;
+
+/// The Sound Switches' shared listening (`0x43e2db`, `0x43e446`,
+/// `0x43e411`; docs/dialogs.md 4.4): the parts start and stop it, the
+/// editor fills it from the [`Mic`] between ticks.
+#[derive(Debug, Clone, Default)]
+pub struct Listen {
+    /// Listening (`listen_start` until `listen_stop`).
+    pub on: bool,
+    /// The bytes recorded since the start (`listen_pos`); `None` is the
+    /// error (-1): no device, or it failed.
+    pub pos: Option<u32>,
+    /// The [`LISTEN_LEN`]-byte buffer (`DAT_004a32f8`).
+    pub buf: Vec<u8>,
+    /// Started over: what the microphone had before is dropped.
+    pub fresh: bool,
+    /// The editor has the microphone open for it.
+    pub capturing: bool,
+}
+
+impl Listen {
+    /// `listen_start` (`0x43e2db`): the buffer silent (0x80), from 0.
+    pub fn start(&mut self) {
+        self.on = true;
+        self.buf.clear();
+        self.buf.resize(LISTEN_LEN, 0x80);
+        self.pos = Some(0);
+        self.fresh = true;
+    }
+
+    /// `listen_stop` (`0x43e411`).
+    pub fn stop(&mut self) {
+        self.on = false;
+    }
+
+    /// Captured samples after the position; past the buffer they're lost
+    /// (one `waveIn` buffer, not looped).
+    pub fn feed(&mut self, data: &[u8]) {
+        let Some(p) = self.pos else { return };
+        let at = usize::try_from(p).unwrap_or(usize::MAX).min(self.buf.len());
+        let n = data.len().min(self.buf.len() - at);
+        self.buf[at..at + n].copy_from_slice(&data[..n]);
+        self.pos = Some(p + u32::try_from(n).unwrap_or(0));
+    }
+}
+
+/// No sound input: every capture fails, as `waveInGetNumDevs() == 0`.
+#[derive(Debug, Default)]
+pub struct NoMic;
+
+impl Mic for NoMic {
+    fn start(&mut self) -> Result<(), String> {
+        Err("no sound input".into())
+    }
+
+    fn read(&mut self, _out: &mut Vec<u8>) -> Result<(), String> {
+        Err("no sound input".into())
+    }
+
+    fn stop(&mut self) {}
+}
+
 /// What the running widget shares with the outside: the clock, the mouse,
 /// the keyboard, randomness and sound.
 #[derive(Debug, Clone, Default)]
@@ -73,6 +158,8 @@ pub struct Env {
     pub rng: u64,
     /// Sound requests for the platform, in order.
     pub sounds: Vec<SoundCmd>,
+    /// The Sound Switches' listening.
+    pub listen: Listen,
     next_voice: u64,
     /// Wall-clock local time: hours, minutes, seconds (for the clock).
     pub local_time: (u32, u32, u32),

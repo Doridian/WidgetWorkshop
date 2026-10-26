@@ -713,8 +713,9 @@ the part.)
 `cDialog` vtable 0x491d70: +0x74 `OnInitDialog` = **0x41acb9**, +0x48
 `OnCommand` = **0x41a686**, message map 0x491874: WM_DRAWITEM →
 **0x41a912**. Fields: +0x48 change callback, +0x4c gadget, +0x50 list of
-check boxes/plain buttons, +0x5a radio buttons, +0x64 radio groups, +0x6e
-combo boxes, +0x78 edit fields, +0x82 static texts, +0x8c
+check boxes, +0x5a push buttons (OK and Cancel included), +0x64 radio
+groups (the radio buttons live only in their groups), +0x6e combo boxes,
++0x78 edit fields, +0x82 static texts, +0x8c
 `cDialogGadgetGraphic*`, +0x90 "Pic" offscreen, +0x94 Doc picture
 offscreen, +0x98 `cDialogDocItem*`.
 
@@ -722,11 +723,13 @@ offscreen, +0x98 `cDialogDocItem*`.
 
 1. For every control id 1..0xA9 that exists: add WS_CLIPSIBLINGS and wrap
    it by class:
-   - `Button` style 0/1 (push) → `cButton`/`cBoolControl` list (+0x5a);
-     style 2/3 (check box) → +0x50; style 4/9 (radio) → grouped into a
-     `cRadioGroup` by the **last character of its caption**, which is
+   - `Button` style 0/1 (push) → `cButton` list (+0x5a);
+     style 2/3 (check box) → `cBoolControl` list (+0x50); style 4/9
+     (radio) → a `cBoolControl` grouped into a
+     `cRadioGroup` (+0x64) by the **last character of its caption**, which is
      stripped (dialog texts like `Preset:2`, `Custom:2`, `On at Center1`:
-     the trailing digit is the group key);
+     the trailing digit is the group key; groups are numbered in the
+     order of their first button's id);
    - style 0xB (owner-draw):
      - id **0x66** whose caption matches `Pic%d` → load picture sheet `%d`
        (e.g. `Pic4000`), make an offscreen the size of the control, fill it
@@ -748,11 +751,15 @@ offscreen, +0x98 `cDialogDocItem*`.
      entries {u16 control id, u16 msg, u32 length, data}, each sent with
      `SendDlgItemMessage(id, msg, 0, &data)`, msg 0x401 translated to 0x180
      LB_ADDSTRING and 0x403 to 0x143 CB_ADDSTRING; ends at control id 0).
-   - `Static` → +0x82; `Edit` → +0x78, and the first edit gets the focus.
+   - `Static` → +0x82; `Edit` → `cEditText` (+0x78), whose template text
+     is a filter (max length, `#` number, `.` real, `-` sign, `A`
+     alphanumeric) and is then cleared; the first edit gets the focus.
 2. Focus: the first edit field, else control 1 (OK).
 3. **`g->vtbl[0x48](g, dlg)` — fill the dialog** (base 0x41ea4d: radio
-   groups, number fields, 32 check boxes, the text(s); and control
-   `+0x33` gets value `+0x2f` if set).
+   groups, number fields, 32 check boxes, the text(s); and push button
+   number `+0x33` gets the handler `+0x2f` if set). The 11 overrides
+   also set control **links** (`0x417c7b`); see
+   [`dialogs.md`](dialogs.md) §2–4.
 4. Select all text of the focused edit (EM_SETSEL 0,−1).
 5. Post WM_COMMAND 0xFD: when it arrives, `DAT_004918bc` = 1 ("initialized").
 
@@ -763,7 +770,7 @@ offscreen, +0x98 `cDialogDocItem*`.
 | 1 (OK) | `UndoSnapshot()`; **`g->vtbl[0x4c](g, dlg)` — read back** (base 0x41ea2e: 0x41e851 copies radios, numbers, check bits, texts into the settings block; then redraws the work area); `EndDialog(1)` |
 | 2 (Cancel) | **`g->vtbl[0x50](g)`** — "settings changed/apply": recompute the gadget's state from its (unchanged) settings block, undoing any preview; `EndDialog(2)` |
 | 0x96 | Doc text page toggle |
-| other < 0x100, after init | radio-group bookkeeping, then the **change callback** `g+0x2b` (default **0x41eb78**): save the settings block, read the dialog into it, call `g->vtbl[0x50]`, refresh the `cDialogGadgetGraphic`, restore the saved settings block. So controls preview live; slot 0x50 is the "apply settings" hook. |
+| other < 0x100, after init | find the control (a radio button is found as its group); on `EN_CHANGE` validate the edit (revert to its last good text if the filter refuses it); on a button click, an edit change or a combo's `CBN_SETFOCUS`, run a push button's handler and walk the **link** chain (each target radio button/check box gets selected, an edit gets the focus; [`dialogs.md`](dialogs.md) §1.3); then the **change callback** `g+0x2b` (default **0x41eb78**): save the settings block, read the dialog into it, call `g->vtbl[0x50]`, refresh the `cDialogGadgetGraphic`, restore the saved settings block. So controls preview live; slot 0x50 is the "apply settings" hook. |
 
 Neither OK nor the callback sets the document's dirty flag (only the undo
 snapshot is taken). WM_DRAWITEM 0xA0 draws a percentage bar (left part

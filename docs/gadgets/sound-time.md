@@ -546,12 +546,15 @@ Settings:
   440, 415.304, 391.996, 369.995, 349.228, 329.628, 311.127, 293.665,
   277.183, 261.626, 246.942, 233.082, 220. The strings are A (440 Hz),
   G#, G, F#, F, E, D#, D, C#, C, B, A#, A (220 Hz).
-- Edit 0 (`+0x4d`, id 110, template text `"5#."`, which presumably
-  means 5 characters numeric; not verified) holds the custom Hz. It is
+- Edit 0 (`+0x4d`, id 110, template text `"5#."`: at most 5
+  characters, a real number, no minus; see
+  [`../dialogs.md`](../dialogs.md) §1.5) holds the custom Hz. It is
   parsed by `0x4110c3`: `sscanf("%lf")`, 0 when unparseable, with the
   magnitude clamped to about 1e±300.
-- The dialog-fill override `0x45cca9` only ties the radio buttons to
-  enabling the combo and the edit, then calls the base fill.
+- The dialog-fill override `0x45cca9` only links the combo to "Preset:"
+  and the edit to "Custom:" (working one selects its radio button; it
+  enables or disables nothing, [`../dialogs.md`](../dialogs.md) §3.1),
+  then calls the base fill.
 
 The tone is **generated from a sample**, the default tone (2.6), and
 not synthesised.
@@ -613,8 +616,10 @@ State:
   0x80. That is about 3.63 s ("up to three seconds" in the Doc).
 - The init sets `+0x14e = &+0x197`, so the object is non-null until the
   first reset or tick. A failed allocation sets it to null.
-- `+0x141` is the u8 animation counter. `+0x140` is the broken flag;
-  record and import clear it, and nothing else sets it.
+- `+0x141` is the u8 animation counter. `+0x140` is the broken flag:
+  record and import clear it, and a failed recording sets it (the catch
+  handler `0x459f9f` of Record; [`../dialogs.md`](../dialogs.md) §4.2).
+  Nothing else sets it.
 
 ```
 0x34 has_object (0x45a628) = true
@@ -651,17 +656,25 @@ even if the dialog is then cancelled.
 
   ```
   tmp = alloc(40000); +0x140 = 0
-  if +0x19d == null or tmp == null: throw the error "There was an error while recording sound" (0x49c04a)
-  SoundClose()
-  n = record_once(tmp, 40000, cb)       // 0x43e170. cb 0x459d98 sets the progress bar (0..105) and returns 2
-  progress(100); SoundOpen()
-  if n == 0: disable/flag OK button (0x417c89)… then the same error message
-  elif n != 0xffff (u16 compare):  +0x19b = 11025; n = min(n, 40000)
-       +0x19d[0..40000] = 0x80; copy tmp[0..n] → +0x19d
-  free(tmp)
+  try:
+    if +0x19d == null or tmp == null: throw
+    SoundClose()
+    n = record_once(tmp, 40000, cb)       // 0x43e170. cb 0x459d98 sets the progress bar (0..105) and returns 2
+    progress(100); SoundOpen()
+    if n == 0: SetFocus(OK)              // 0x41c1d9 + 0x417c89, off the button about to be disabled
+    elif n != 0xffff (u16 compare):  +0x19b = 11025; n = min(n, 40000)
+         +0x19d[0..40000] = 0x80; copy tmp[0..n] → +0x19d
+    free(tmp)
+    if n == 0: throw
+  catch (0x459f9f):
+    disable push button 2 ("Record a Sound") for the rest of the dialog
+    +0x140 = 1                            // the broken picture
+    AfxMessageBox("There was an error while recording sound")   // 0x49c04a
   ```
 
-  The length stays 40000; anything not recorded is silence.
+  The length stays 40000; anything not recorded is silence. A failed
+  recording (no input device, any `waveIn*` error) leaves the buffer as
+  it was. Full details in [`../dialogs.md`](../dialogs.md) §4.2.
 
 - Import (`0x459fe8`, attached by the dialog-fill override `0x45a72e`
   as button 3) calls `import_wav(+0x19d, 40000, …)` (`0x43deda`) and
@@ -840,8 +853,10 @@ Settings:
 | 4 | Down a Fifth | 0.667 |
 | 5 | Down an Octave | 0.5 |
 
-The dialog-fill override `0x4536ea` only ties the radio buttons and
-check boxes to enabling controls.
+The dialog-fill override `0x4536ea` only links controls (it enables or
+disables nothing): focusing the pitch list ticks "Change Pitch:", and
+either check box selects "Transform Sound:"
+([`../dialogs.md`](../dialogs.md) §3.3).
 
 State:
 
@@ -1146,8 +1161,6 @@ Every other part here makes a sound object and needs a Speaker.
 ## 15. Open questions
 
 - Second u16 of type 1021 (501 / 502).
-- Meaning of the Fork edit control's template text `"5#."`, presumably a
-  format or length hint for `cEdit` (`0x419c1a`); not traced.
 - `0x481228`, used only by the unreferenced `0x43ae9b`, was not
   identified.
 - The INI file name behind `0x4a2450` was not checked.

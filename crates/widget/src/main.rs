@@ -275,6 +275,8 @@ fn main() {
     let audio = if args.no_audio {
         platform::audio::Audio::silent()
     } else {
+        // Without sound there's no microphone either (`NoMic`).
+        editor.mic = Box::new(sound::Microphone::default());
         platform::audio::Audio::open()
     };
     let app = Workshop {

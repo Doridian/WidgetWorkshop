@@ -4,8 +4,8 @@
 use std::collections::HashMap;
 
 use engine::gadget::SoundData;
-use engine::sim::SoundCmd;
-use platform::audio::{Audio, Play, VoiceId};
+use engine::sim::{MIC_RATE, Mic, SoundCmd};
+use platform::audio::{Audio, Capture, Play, VoiceId};
 
 /// The mixer's rate.
 const RATE: u32 = 11025;
@@ -77,6 +77,28 @@ impl Sound {
                 }
             }
         }
+    }
+}
+
+/// The microphone (the platform's default input), opened for each
+/// capture as the original opens `waveIn`.
+#[derive(Default)]
+pub struct Microphone {
+    capture: Option<Capture>,
+}
+
+impl Mic for Microphone {
+    fn start(&mut self) -> Result<(), String> {
+        self.capture = Some(Capture::open(MIC_RATE)?);
+        Ok(())
+    }
+
+    fn read(&mut self, out: &mut Vec<u8>) -> Result<(), String> {
+        self.capture.as_ref().ok_or("not capturing")?.read(out)
+    }
+
+    fn stop(&mut self) {
+        self.capture = None;
     }
 }
 
