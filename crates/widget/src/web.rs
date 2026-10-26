@@ -3,12 +3,15 @@
 //! game's CD image (once; the browser keeps it), reads it into memory,
 //! mounts the browser's storage where the widgets and the settings go
 //! (`platform::storage::WEB_STORAGE`), takes the options from the
-//! page's query, and then [`crate::start`]s the editor as natively.
+//! page's query, and then [`crate::start`]s the editor as natively. A
+//! widget link in the page's address opens as the command line's would,
+//! and one put there later ([`take_links`]) too.
 //!
 //! The page (`web/index.html`, written by `tools/build-web.sh`) has the
 //! form that picks the CD image and the canvas; `web.js` beside this
 //! keeps the files in the browser's `IndexedDB`.
 
+use std::cell::RefCell;
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::Arc;
@@ -100,9 +103,50 @@ async fn cd_image() -> Result<Box<dyn engine::assets::Source>, String> {
     }
 }
 
+thread_local! {
+    /// The widget links the page's address got since the start, for
+    /// [`take_links`].
+    static LINKS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The page's address if it's a widget link (`#w=`, `engine::link`).
+fn page_link() -> Option<String> {
+    let href = web_sys::window()?.location().href().ok()?;
+    engine::link::decode(&href).map(|_| href)
+}
+
+/// The page without its query or fragment: where its widget links point.
+pub(crate) fn page() -> String {
+    let location = web_sys::window().map(|w| w.location());
+    let part = |f: fn(&web_sys::Location) -> Result<String, JsValue>| {
+        location.as_ref().and_then(|l| f(l).ok()).unwrap_or_default()
+    };
+    part(web_sys::Location::origin) + &part(web_sys::Location::pathname)
+}
+
+/// Keeps the widget links put into the page's address from now on (a
+/// link pasted there loads no new page, the fragment changes).
+fn watch_links() {
+    let Some(window) = web_sys::window() else { return };
+    let changed = Closure::<dyn FnMut()>::new(|| {
+        if let Some(l) = page_link() {
+            LINKS.with_borrow_mut(|links| links.push(l));
+        }
+    });
+    let _ = window.add_event_listener_with_callback("hashchange", changed.as_ref().unchecked_ref());
+    // The page's for good.
+    changed.forget();
+}
+
+/// The widget links put into the page's address since last time.
+pub(crate) fn take_links() -> Vec<String> {
+    LINKS.with_borrow_mut(std::mem::take)
+}
+
 /// The page's query as command-line options: `?no-audio&ui-scale=2` is
 /// `--no-audio --ui-scale=2`. A value without a key names a widget in the
-/// storage (`?MYWIDGET.WGT`).
+/// storage (`?MYWIDGET.WGT`). A widget link in the address is the
+/// command line's `LINK`.
 fn query_args() -> Vec<OsString> {
     let search = web_sys::window()
         .and_then(|w| w.location().search().ok())
@@ -126,6 +170,7 @@ fn query_args() -> Vec<OsString> {
             }
             None => OsString::from(format!("--{}", decode(p))),
         })
+        .chain(page_link().map(OsString::from))
         .collect()
 }
 
@@ -151,6 +196,7 @@ async fn run() -> Result<(), String> {
     );
     platform::web::show_status("", false);
     let args = crate::args(query_args().into_iter());
+    watch_links();
     for (given, what) in [
         (args.cd.is_some(), "a CD"),
         (args.overrides.is_some(), "--overrides"),

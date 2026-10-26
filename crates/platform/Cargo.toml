@@ -24,6 +24,8 @@ wgpu = "30"
 winit = "0.30"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The clipboard's text (`clipboard`).
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 pollster = "1"
 
 # The browser build (docs/web.md): WebGPU, falling back to WebGL2;
@@ -38,6 +40,7 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "Blob",
     "BlobPropertyBag",
+    "Clipboard",
     "console",
     "DataTransfer",
     "Document",
@@ -48,6 +51,7 @@ web-sys = { version = "0.3", features = [
     "HtmlAnchorElement",
     "HtmlCanvasElement",
     "HtmlElement",
+    "Navigator",
     "Url",
     "Window",
 ] }

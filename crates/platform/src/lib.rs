@@ -15,7 +15,8 @@
 //! remembered in the port's settings file ([`settings`]). The mouse
 //! pointer is the system's, in the shape the frame asks for ([`Cursor`]).
 //! [`theme`] tells whether the system is in dark mode. A file dropped
-//! onto the window goes to [`App::dropped`].
+//! onto the window goes to [`App::dropped`], text read from the
+//! [`clipboard`] to [`App::pasted`].
 
 //!
 //! In the browser (`wasm32`, `docs/web.md`) the window is the page's
@@ -33,6 +34,7 @@ macro_rules! eprintln {
 }
 
 pub mod audio;
+pub mod clipboard;
 pub mod data;
 mod display;
 pub mod fs;
@@ -250,6 +252,8 @@ pub trait App {
     fn resize(&mut self, width: u32, height: u32);
     /// A file was dropped onto the window (a port extension).
     fn dropped(&mut self, _file: DroppedFile) {}
+    /// The clipboard's text, as [`clipboard::request_text`] asked.
+    fn pasted(&mut self, _text: String) {}
 }
 
 /// How the window opens; what isn't given comes from the settings file.
@@ -519,6 +523,9 @@ impl<A: App> ApplicationHandler for Runner<A> {
             for f in web::take_drops() {
                 self.app.dropped(f);
             }
+        }
+        for t in clipboard::take_pasted() {
+            self.app.pasted(t);
         }
         let now = Instant::now();
         if now >= self.last + FRAME {

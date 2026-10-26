@@ -65,6 +65,7 @@ desktop's (xdg-desktop-portal, else zenity). The icon is the port's own
 ```sh
 cargo run --release -p widget                       # the .iso here, else orig/
 cargo run --release -p widget -- CD.iso MY.WGT      # a CD and a widget to open
+cargo run --release -p widget -- CD.iso 'https://…/widget.html#w=…'   # a widget link
 cargo run --release -p widget -- --help
 ```
 
@@ -73,6 +74,11 @@ Options: `--no-audio`, `--window-size=WxH`, `--fullscreen`, `--windowed`,
 (resources that replace or add to the CD's) and `--export=DIR` (writes
 every resource there in that layout and quits). On Linux the sound needs
 ALSA's headers to build (`libasound2-dev`).
+
+Widgets travel as links too ([docs/web.md](docs/web.md#widget-links)):
+File ▸ Copy Link to Widget puts one on the clipboard, which opens the
+widget in the browser build for anyone with the CD, and File ▸ Open
+Widget Link (Ctrl+V) opens the one on the clipboard, natively too.
 
 The browser build: `tools/build-web.sh`, [docs/web.md](docs/web.md).
 

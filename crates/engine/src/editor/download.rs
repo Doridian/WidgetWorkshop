@@ -38,13 +38,7 @@ impl Editor {
     /// Open asks, then it opens. A drop while a box is up is ignored;
     /// one while the widget runs stops it.
     pub fn drop_file(&mut self, file: Dropped) {
-        if self.prompt.is_some()
-            || self.dialog.is_some()
-            || self.file_dialog.is_some()
-            || self.puzzle_dialog.is_some()
-            || self.recording.is_some()
-            || self.drag.is_some()
-        {
+        if self.busy() {
             return;
         }
         self.menu.close();
@@ -52,6 +46,16 @@ impl Editor {
         self.dropped = Some(file);
         self.confirm_save(Next::Dropped);
         self.update_menu();
+    }
+
+    /// Whether a box is up or a drag going on, which a drop waits for.
+    pub(super) fn busy(&self) -> bool {
+        self.prompt.is_some()
+            || self.dialog.is_some()
+            || self.file_dialog.is_some()
+            || self.puzzle_dialog.is_some()
+            || self.recording.is_some()
+            || self.drag.is_some()
     }
 
     /// After "Save changes?": the dropped file as the widget. Without a

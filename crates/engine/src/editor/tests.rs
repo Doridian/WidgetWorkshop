@@ -866,3 +866,78 @@ fn dropped_widgets_open_and_widgets_download() {
     });
     assert_eq!(prompt_text(&e), e.assets.string(8007));
 }
+
+#[test]
+fn widget_links_copy_and_open() {
+    let Some(mut e) = editor() else { return };
+    let file_menu = |e: &Editor| match &e.menu.items[0] {
+        formats::dialog::MenuItem::Popup { items, .. } => items
+            .iter()
+            .filter_map(|i| match i {
+                formats::dialog::MenuItem::Command { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    // Without the clipboard, no link items, and Ctrl+V does nothing.
+    assert!(!file_menu(&e).contains(&cmd::COPY_LINK));
+    e.key_down(VK_CONTROL);
+    e.key_down(u16::from(b'V'));
+    e.key_up(u16::from(b'V'));
+    e.key_up(VK_CONTROL);
+    assert!(e.prompt.is_none());
+    let copied = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+    let (sink, ask) = (std::rc::Rc::clone(&copied), std::rc::Rc::clone(&asked));
+    e.set_links(Links {
+        base: "https://example.org/widget.html".to_owned(),
+        copy: Box::new(move |t| {
+            sink.borrow_mut().push(t.to_owned());
+            true
+        }),
+        paste: Box::new(move || ask.set(ask.get() + 1)),
+    });
+    // After Save Into a Stand-Alone Widget, natively without downloads.
+    let items = file_menu(&e);
+    let at = items.iter().position(|&i| i == cmd::SAVE_INTO).unwrap();
+    assert_eq!(items[at + 1..at + 3], [cmd::PASTE, cmd::COPY_LINK]);
+    // Copy: the widget as saved, the player told.
+    add(&mut e, *b"Coin", 300, 300);
+    e.dirty = true;
+    e.command(cmd::COPY_LINK);
+    let url = copied.borrow()[0].clone();
+    assert!(url.starts_with("https://example.org/widget.html#w="));
+    assert_eq!(crate::link::decode(&url), Some((None, e.doc.save())));
+    assert!(prompt_text(&e).unwrap().starts_with("A link to the widget is on the clipboard"));
+    assert!(e.dirty);
+    e.key_down(VK_RETURN);
+    assert!(e.prompt.is_none());
+    // Ctrl+V asks for the clipboard; its link opens as a dropped widget.
+    e.command(cmd::NEW);
+    e.key_down(u16::from(b'N'));
+    e.key_down(VK_CONTROL);
+    e.key_down(u16::from(b'V'));
+    e.key_up(u16::from(b'V'));
+    e.key_up(VK_CONTROL);
+    assert_eq!(asked.get(), 1);
+    let named = crate::link::encode("x", Some("COIN.WGT"), &crate::link::decode(&url).unwrap().1);
+    e.paste_link(&named);
+    assert_eq!(e.doc.gadgets.len(), 1);
+    assert!(e.path.is_none() && !e.dirty);
+    e.update(16, (0, 0, 0));
+    assert_eq!(e.title(), "Widget Workshop - COIN.WGT");
+    // Copied again under that name.
+    e.command(cmd::COPY_LINK);
+    assert!(copied.borrow()[1].contains("#n=COIN.WGT&w="));
+    e.key_down(VK_RETURN);
+    // No link on the clipboard.
+    e.paste_link("hello");
+    assert_eq!(prompt_text(&e).as_deref(), Some("The clipboard holds no link to a widget."));
+    e.key_down(VK_RETURN);
+    // Greyed while running.
+    e.run();
+    e.command(cmd::PASTE);
+    e.command(cmd::COPY_LINK);
+    assert_eq!((asked.get(), copied.borrow().len()), (1, 2));
+}

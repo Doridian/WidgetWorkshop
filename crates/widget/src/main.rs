@@ -6,9 +6,10 @@
 //!
 //! `widget [--overrides=DIR] [--export=DIR] [--no-audio]
 //! [--window-size=WxH] [--fullscreen|--windowed] [--ui-scale=N|auto] [--help]
-//! [CD] [WIDGET.WGT]` ([`USAGE`]), where `CD` is the game's CD: an ISO
-//! image or a folder with its files (default: the one `.iso` in the
-//! current directory, else `orig`). `--overrides` names a folder whose
+//! [CD] [WIDGET.WGT|LINK]` ([`USAGE`]), where `CD` is the game's CD: an
+//! ISO image or a folder with its files (default: the one `.iso` in the
+//! current directory, else `orig`), and `LINK` a widget link
+//! (`engine::link`). `--overrides` names a folder whose
 //! files replace or add to the CD's resources (`engine::assets`);
 //! `--export` writes every resource there in that layout and quits.
 //! Started without a CD and with none here (a packaged app started from
@@ -51,12 +52,19 @@ use platform::{App, Button, Cursor, CursorImage, Frame, Input, WindowOptions};
 
 use crate::sound::Sound;
 
+/// The page widget links open natively: the browser build on the
+/// project's site (`.github/workflows/build.yml`). In the browser they
+/// open the page they were made on.
+#[cfg(not(target_arch = "wasm32"))]
+const LINK_PAGE: &str = "https://doridian.github.io/WidgetWorkshop/widget.html";
+
 const USAGE: &str = "usage: widget [--overrides=DIR] [--export=DIR] [--no-audio] [--window-size=WxH] \
-[--fullscreen|--windowed] [--ui-scale=N|auto] [--help] [CD] [WIDGET.WGT]
+[--fullscreen|--windowed] [--ui-scale=N|auto] [--help] [CD] [WIDGET.WGT|LINK]
 
   CD               the game's CD: an ISO image or a folder with its files
                    (default: the .iso in the current directory, else orig)
   WIDGET.WGT       a widget to open
+  LINK             a widget link to open (File > Copy Link to Widget's)
   --overrides=DIR  resources that replace or add to the CD's:
                    DIR/<MODULE>/<type>/<id>.<ext>, fonts in DIR/fonts,
                    puzzles in DIR/WIDGET.PZL, help in DIR/WIDGET.HLP
@@ -72,6 +80,7 @@ const USAGE: &str = "usage: widget [--overrides=DIR] [--export=DIR] [--no-audio]
 struct Args {
     cd: Option<PathBuf>,
     widget: Option<PathBuf>,
+    link: Option<String>,
     overrides: Option<PathBuf>,
     export: Option<PathBuf>,
     no_audio: bool,
@@ -117,6 +126,7 @@ fn args(mut it: impl Iterator<Item = std::ffi::OsString>) -> Args {
     let mut a = Args {
         cd: None,
         widget: None,
+        link: None,
         overrides: None,
         export: None,
         no_audio: false,
@@ -162,8 +172,13 @@ fn args(mut it: impl Iterator<Item = std::ffi::OsString>) -> Args {
             _ => {
                 let p = PathBuf::from(&s);
                 let is_widget = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("wgt"));
-                if is_widget && a.widget.is_none() {
-                    a.widget = Some(p);
+                let is_link = engine::link::decode(&s).is_some();
+                if (is_widget || is_link) && a.widget.is_none() && a.link.is_none() {
+                    if is_link {
+                        a.link = Some(s);
+                    } else {
+                        a.widget = Some(p);
+                    }
                 } else if a.cd.is_none() {
                     a.cd = Some(p);
                 } else {
@@ -188,6 +203,10 @@ impl App for Workshop {
         let ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
         if let Some(dark) = self.theme.changed() {
             self.editor.set_system_dark(dark);
+        }
+        #[cfg(target_arch = "wasm32")]
+        for l in web::take_links() {
+            self.editor.open_link(&l);
         }
         self.editor.update(ms, sound::local_time());
         let cmds = self.editor.take_sounds();
@@ -259,6 +278,10 @@ impl App for Workshop {
             path: file.path.map(|p| p.display().to_string()),
             data: file.data,
         });
+    }
+
+    fn pasted(&mut self, text: String) {
+        self.editor.paste_link(&text);
     }
 }
 
@@ -375,6 +398,18 @@ fn start(args: &Args, assets: Assets) -> Result<(), platform::Error> {
     // downloads too.
     #[cfg(target_arch = "wasm32")]
     editor.set_download(Box::new(platform::web::download));
+    #[cfg(not(target_arch = "wasm32"))]
+    let base = LINK_PAGE.to_owned();
+    #[cfg(target_arch = "wasm32")]
+    let base = web::page();
+    editor.set_links(editor::Links {
+        base,
+        copy: Box::new(platform::clipboard::set_text),
+        paste: Box::new(platform::clipboard::request_text),
+    });
+    if let Some(l) = &args.link {
+        editor.open_link(l);
+    }
     // `0x415018`: the random generator starts at `(u32)time(NULL)`.
     editor.env.rng = chrono::Utc::now().timestamp().rem_euclid(1 << 32).unsigned_abs();
     let audio = if args.no_audio {

@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 formats = { path = "../formats" }
+# The widget links' deflate (`link`).
+miniz_oxide = "0.8"
 
 [lints]
 workspace = true
