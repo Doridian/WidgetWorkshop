@@ -199,8 +199,6 @@ pub struct Pendulum {
     released: u32,
     /// The period in seconds (`+0x1ab`).
     period: f64,
-    /// Not loaded: the fresh constructor's settings still to apply.
-    fresh: bool,
 }
 
 impl Default for Pendulum {
@@ -210,7 +208,6 @@ impl Default for Pendulum {
             phase: THREE_HALF_PI,
             released: 0,
             period: 0.0,
-            fresh: true,
         }
     }
 }
@@ -291,16 +288,10 @@ impl Behavior for Pendulum {
         !self.has_bool(core, knot)
     }
 
-    fn settings_changed(&mut self, core: &mut Core) {
-        if std::mem::take(&mut self.fresh) {
-            // On at Center; 1,472 ft.
-            core.settings.radios[1] = 1;
-            core.settings.numbers[0] = 2;
-        }
-    }
-
-    fn load(&mut self, _core: &mut Core, _data: &[u8]) {
-        self.fresh = false;
+    fn init(&mut self, core: &mut Core) {
+        // On at Center; 1,472 ft.
+        core.settings.radios[1] = 1;
+        core.settings.numbers[0] = 2;
     }
 
     any!();
@@ -342,7 +333,6 @@ pub struct DropChamber {
     /// (`+0x1a7`).
     y: i32,
     prev_y: i32,
-    fresh: bool,
 }
 
 impl Default for DropChamber {
@@ -352,7 +342,6 @@ impl Default for DropChamber {
             fell_at: 0,
             y: 0,
             prev_y: 0,
-            fresh: true,
         }
     }
 }
@@ -462,15 +451,9 @@ impl Behavior for DropChamber {
         true
     }
 
-    fn settings_changed(&mut self, core: &mut Core) {
-        if std::mem::take(&mut self.fresh) {
-            // An elephant, on Earth, from 1,472 ft.
-            core.settings.numbers = [2, 2, 1, 0];
-        }
-    }
-
-    fn load(&mut self, _core: &mut Core, _data: &[u8]) {
-        self.fresh = false;
+    fn init(&mut self, core: &mut Core) {
+        // An elephant, on Earth, from 1,472 ft.
+        core.settings.numbers = [2, 2, 1, 0];
     }
 
     any!();
@@ -501,7 +484,6 @@ pub struct PhysicsCanon {
     /// `+0x1ab`).
     height: f64,
     flight: f64,
-    fresh: bool,
 }
 
 impl Default for PhysicsCanon {
@@ -513,7 +495,6 @@ impl Default for PhysicsCanon {
             ball_y: 0,
             height: 0.0,
             flight: 0.0,
-            fresh: true,
         }
     }
 }
@@ -616,15 +597,9 @@ impl Behavior for PhysicsCanon {
         !self.has_bool(core, knot)
     }
 
-    fn settings_changed(&mut self, core: &mut Core) {
-        if std::mem::take(&mut self.fresh) {
-            // On When Hits.
-            core.settings.radios[1] = 2;
-        }
-    }
-
-    fn load(&mut self, _core: &mut Core, _data: &[u8]) {
-        self.fresh = false;
+    fn init(&mut self, core: &mut Core) {
+        // On When Hits.
+        core.settings.radios[1] = 2;
     }
 
     any!();
@@ -685,19 +660,17 @@ planets! {
 
 /// cPlanet: shows a planet and outputs one of its numbers.
 #[derive(Debug)]
-pub struct Planet {
-    fresh: bool,
-}
+pub struct Planet;
 
 impl Default for Planet {
     fn default() -> Planet {
-        Planet { fresh: true }
+        Planet
     }
 }
 
 #[must_use]
 pub fn planet() -> Box<dyn Behavior> {
-    Box::new(Planet::default())
+    Box::new(Planet)
 }
 
 fn planet_index(core: &Core) -> usize {
@@ -761,15 +734,9 @@ impl Behavior for Planet {
         true
     }
 
-    fn settings_changed(&mut self, core: &mut Core) {
-        if std::mem::take(&mut self.fresh) {
-            // The Earth.
-            core.settings.numbers[0] = 2;
-        }
-    }
-
-    fn load(&mut self, _core: &mut Core, _data: &[u8]) {
-        self.fresh = false;
+    fn init(&mut self, core: &mut Core) {
+        // The Earth.
+        core.settings.numbers[0] = 2;
     }
 
     any!();
@@ -800,21 +767,13 @@ pub fn area_volume(shape: u8, x: f64) -> f64 {
 /// cAreaVolume: crunches a new input for a moment, then outputs the area
 /// or volume; a negative input breaks it.
 #[derive(Debug)]
+#[derive(Default)]
 pub struct AreaVolume {
     /// Whether the input's wire was flagged changed when the crunching
     /// began (`+0x197`).
     wire_changed: bool,
-    fresh: bool,
 }
 
-impl Default for AreaVolume {
-    fn default() -> AreaVolume {
-        AreaVolume {
-            wire_changed: false,
-            fresh: true,
-        }
-    }
-}
 
 #[must_use]
 pub fn area_volume_gadget() -> Box<dyn Behavior> {
@@ -862,15 +821,9 @@ impl Behavior for AreaVolume {
         true
     }
 
-    fn settings_changed(&mut self, core: &mut Core) {
-        if std::mem::take(&mut self.fresh) {
-            // Volume of a sphere.
-            core.settings.radios[0] = 3;
-        }
-    }
-
-    fn load(&mut self, _core: &mut Core, _data: &[u8]) {
-        self.fresh = false;
+    fn init(&mut self, core: &mut Core) {
+        // Volume of a sphere.
+        core.settings.radios[0] = 3;
     }
 
     any!();
@@ -1070,7 +1023,7 @@ mod tests {
 
         let mut b = Bench::new(1.0);
         let mut d = DropChamber::default();
-        d.settings_changed(&mut b.core); // elephant, Earth, 1,472 ft
+        d.init(&mut b.core); // elephant, Earth, 1,472 ft
         b.core.settings.numbers[1] = 4; // 20 ft
         b.start(&mut d);
         b.tick_at(&mut d, 0);
@@ -1149,7 +1102,7 @@ mod tests {
     fn area_volume_crunches_then_outputs() {
         let mut b = Bench::new(2.0);
         let mut a = AreaVolume::default();
-        a.settings_changed(&mut b.core); // sphere
+        a.init(&mut b.core); // sphere
         b.start(&mut a);
         // The cache starts "none", so a wired input counts as new.
         b.tick_at(&mut a, 0);
@@ -1175,8 +1128,8 @@ mod tests {
     #[test]
     fn planet_outputs_its_numbers() {
         let mut b = Bench::new(0.0);
-        let mut p = Planet::default();
-        p.settings_changed(&mut b.core);
+        let mut p = Planet;
+        p.init(&mut b.core);
         b.core.settings.numbers[1] = 6;
         b.tick_at(&mut p, 0);
         assert!(close(b.core.number, 1.0));

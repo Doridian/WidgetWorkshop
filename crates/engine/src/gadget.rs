@@ -412,6 +412,10 @@ pub trait Behavior: Any {
     /// top left.
     fn click(&mut self, _core: &mut Core, _io: &mut Io<'_>, _x: i32, _y: i32) {}
 
+    /// The constructor's defaults for a new part (not one loaded from a
+    /// widget), before its first [`Behavior::reset`].
+    fn init(&mut self, _core: &mut Core) {}
+
     /// Slot 0x1c: back to the state before running (on creation and when
     /// a run stops).
     fn reset(&mut self, core: &mut Core) {

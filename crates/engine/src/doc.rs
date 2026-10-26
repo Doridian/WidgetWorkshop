@@ -313,6 +313,7 @@ pub fn new_gadget(assets: &Assets, tag: Tag, id: u32, h: i32, v: i32) -> Gadget 
     g.core.id = id;
     g.core.h = h;
     g.core.v = v;
+    g.behavior.init(&mut g.core);
     g.behavior.reset(&mut g.core);
     g.behavior.settings_changed(&mut g.core);
     g
