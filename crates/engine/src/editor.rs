@@ -123,10 +123,10 @@ impl Editor {
         let mut n = 0;
         while self.ms_rest >= 1000 && n < 8 {
             self.ms_rest -= 1000;
-            self.env.ticks = self.env.ticks.wrapping_add(1);
-            self.env.ms += 1000 / TICKS_PER_SECOND;
             self.doc.tick(&mut self.env);
             self.env.keys.clear();
+            self.env.ticks = self.env.ticks.wrapping_add(1);
+            self.env.ms += 1000 / TICKS_PER_SECOND;
             n += 1;
         }
         if n == 8 {
@@ -160,7 +160,7 @@ impl Editor {
         {
             let (gh, gv) = (self.doc.gadgets[i].core.h, self.doc.gadgets[i].core.v);
             self.doc.with_gadget(i, &mut self.env, |g, io| {
-                g.behavior.click(&mut g.core, io, h - gh, v - gv)
+                g.behavior.click(&mut g.core, io, h - gh, v - gv);
             });
         }
     }

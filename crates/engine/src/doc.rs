@@ -42,8 +42,9 @@ pub struct Document {
     pub wires: Vec<Wire>,
     /// `back`.
     pub background: u16,
-    /// `Gmun`: the puzzle this widget is, if any.
-    pub puzzle: Option<Vec<u8>>,
+    /// `numG`: how many of each part the tray still has, where limited
+    /// (a puzzle's; -1 is unlimited, 0 greys the part out).
+    pub tray_limits: Vec<(Tag, i16)>,
     /// The version it was read as.
     pub version: u16,
     next_id: u32,
@@ -79,7 +80,7 @@ impl Document {
             match &c.tag {
                 b"fver" => {}
                 b"back" => doc.background = wgt::be16(&c.data, 0).unwrap_or(0),
-                b"Gmun" => doc.puzzle = Some(c.data.clone()),
+                b"numG" => doc.tray_limits = read_tray_limits(&c.data),
                 b"conn" => {
                     if let Ok(conn) = wgt::Connection::parse(&c.data, version) {
                         conns.push(conn);
@@ -118,10 +119,10 @@ impl Document {
             tag: *b"back",
             data: self.background.to_be_bytes().to_vec(),
         });
-        if let Some(p) = &self.puzzle {
+        if self.tray_limits.iter().any(|&(_, n)| n != -1) {
             form.chunks.push(Chunk {
-                tag: *b"Gmun",
-                data: p.clone(),
+                tag: *b"numG",
+                data: write_tray_limits(&self.tray_limits),
             });
         }
         for g in &self.gadgets {
@@ -255,8 +256,11 @@ impl Document {
         }
     }
 
-    /// Stops running: every gadget's slot 0x1c.
+    /// Stops running (`0x424a94`): every gadget's slot 0x1c.
     pub fn stop(&mut self) {
+        for w in &mut self.wires {
+            w.changed = false;
+        }
         for g in &mut self.gadgets {
             g.behavior.reset(&mut g.core);
         }
@@ -301,6 +305,7 @@ pub fn new_gadget(assets: &Assets, tag: Tag, id: u32, h: i32, v: i32) -> Gadget 
     g.core.id = id;
     g.core.h = h;
     g.core.v = v;
+    g.behavior.reset(&mut g.core);
     g.behavior.settings_changed(&mut g.core);
     g
 }
@@ -327,10 +332,11 @@ fn load_gadget(assets: &Assets, c: &Chunk) -> Gadget {
     core.v = i32::from(wgt::be16(base, 4).unwrap_or(0) as i16);
     core.h = i32::from(wgt::be16(base, 6).unwrap_or(0) as i16);
     core.settings = Settings::from_be(base.get(8..).unwrap_or_default());
-    core.selected = base.get(0x110).is_some_and(|&b| b != 0);
+    core.locked = base.get(0x110).is_some_and(|&b| b != 0);
     core.raw_base = base.to_vec();
     let mut g = Gadget { core, behavior };
     g.behavior.load(&mut g.core, d.get(BASE_SIZE..).unwrap_or_default());
+    g.behavior.reset(&mut g.core);
     g.behavior.settings_changed(&mut g.core);
     g
 }
@@ -342,10 +348,33 @@ fn save_gadget(g: &Gadget) -> Chunk {
     base[4..6].copy_from_slice(&i16::try_from(g.core.v).unwrap_or(0).to_be_bytes());
     base[6..8].copy_from_slice(&i16::try_from(g.core.h).unwrap_or(0).to_be_bytes());
     base[8..8 + crate::gadget::SETTINGS_SIZE].copy_from_slice(&g.core.settings.to_be());
-    base[0x110] = u8::from(g.core.selected);
+    base[0x110] = u8::from(g.core.locked);
     base.extend_from_slice(&g.behavior.save(&g.core));
     Chunk {
         tag: g.core.tag.0,
         data: base,
     }
+}
+
+/// A `numG` chunk's entries (`0x432b3c`).
+fn read_tray_limits(d: &[u8]) -> Vec<(Tag, i16)> {
+    let n = usize::from(wgt::be16(d, 0).unwrap_or(0));
+    (0..n)
+        .map_while(|i| {
+            let at = 2 + 6 * i;
+            let tag: [u8; 4] = d.get(at..at + 4)?.try_into().ok()?;
+            Some((Tag(tag), i16::from_be_bytes([*d.get(at + 4)?, *d.get(at + 5)?])))
+        })
+        .collect()
+}
+
+/// The `numG` chunk for the limited parts (`0x432aa5`).
+fn write_tray_limits(limits: &[(Tag, i16)]) -> Vec<u8> {
+    let limited: Vec<_> = limits.iter().filter(|&&(_, n)| n != -1).collect();
+    let mut out = u16::try_from(limited.len()).unwrap_or(0).to_be_bytes().to_vec();
+    for (tag, n) in limited {
+        out.extend_from_slice(&tag.0);
+        out.extend_from_slice(&n.to_be_bytes());
+    }
+    out
 }

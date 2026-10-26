@@ -189,7 +189,7 @@ impl Value {
         match self {
             Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
             Value::Number(n) => Some(*n),
-            Value::Object(o) => Some(f64::from(o.handle)),
+            Value::Object(o) => Some(if o.handle == 0 { 0.0 } else { 1.0 }),
             Value::None => None,
         }
     }
@@ -208,7 +208,11 @@ pub enum ObjectKind {
     Picture,
 }
 
+/// The "no value" a cached input starts at (`0xADDC4A11FF61B241`).
+pub const NONE: f64 = f64::from_bits(0xADDC_4A11_FF61_B241);
+
 /// What every gadget has (`cGadget`).
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct Core {
     pub tag: Tag,
@@ -224,13 +228,30 @@ pub struct Core {
     pub gadget_id: u16,
     /// Its picture sheet and knot table (type 1004/1014).
     pub sheet: u32,
-    pub selected: bool,
+    /// Locked (`+0x0c`, saved at 0x110): a puzzle's part, which can't be
+    /// selected, moved, opened or deleted.
+    pub locked: bool,
     pub settings: Settings,
     /// One long text instead of four labels (`+0x34`).
     pub long_text: bool,
     pub knots: Vec<Knot>,
     /// The boolean state (`+0x13e`), what a boolean output gives.
     pub state: bool,
+    /// The number (`+0x146`), what a number output gives.
+    pub number: f64,
+    /// The object (`+0x14e`), what an object output gives.
+    pub object: Option<Object>,
+    /// Broken (`+0x140`): drawn with the broken picture until reset.
+    pub broken: bool,
+    /// An animation phase classes keep (`+0x141`), zeroed by reset.
+    pub phase: u8,
+    /// Whether a run starts with every input's cached value "none" (`+0x13d`),
+    /// so the first look sees them changed; otherwise it caches what they are.
+    pub empty_cache: bool,
+    /// The inputs' last values (`+0x156`), for [`Io::value_changed`].
+    pub cache: [f64; 8],
+    /// When [`Io::throttle`] last passed (`+0x152`), in run ticks.
+    pub throttled_at: u32,
     /// The saved base part (0x150 bytes) as loaded, written back as is
     /// where the port doesn't model a field.
     pub raw_base: Vec<u8>,
@@ -247,13 +268,29 @@ impl Core {
             bounds: Rect::default(),
             gadget_id,
             sheet,
-            selected: false,
+            locked: false,
             settings: Settings::default(),
             long_text: false,
             knots: Vec::new(),
             state: false,
+            number: 0.0,
+            object: None,
+            broken: false,
+            phase: 0,
+            empty_cache: false,
+            cache: [NONE; 8],
+            throttled_at: 0,
             raw_base: Vec::new(),
         }
+    }
+
+    /// The base class's reset (`0x41cef4`): the outputs cleared, not broken.
+    pub fn base_reset(&mut self) {
+        self.state = false;
+        self.number = 0.0;
+        self.object = None;
+        self.phase = 0;
+        self.broken = false;
     }
 
     /// The gadget's rectangle on the worksheet.
@@ -302,6 +339,48 @@ impl DrawCx<'_> {
             self.surface.blit(&img, x + i32::from(r.left), y + i32::from(r.top));
         }
     }
+
+    /// Point list `id` (type 1010 in `WWGADGET.DLL`, `0x41141f`).
+    #[must_use]
+    pub fn points(&self, id: u32) -> Vec<formats::tables::Point> {
+        self.assets
+            .get(crate::assets::Module::Gadget, crate::assets::rt::POINTS, id)
+            .map(formats::tables::points)
+            .unwrap_or_default()
+    }
+
+    /// The palette index nearest `rgb`, as Windows maps a pen or text
+    /// colour on the 8-bit display.
+    #[must_use]
+    pub fn color(&self, rgb: [u8; 3]) -> u8 {
+        nearest(&self.assets.palette(), rgb)
+    }
+
+    /// `text` (Windows-1252) in the bitmap font `face` nearest `height`
+    /// pixels, top left at `x`, `y`; returns its width (0 without the font).
+    #[allow(clippy::too_many_arguments)]
+    pub fn text(&mut self, face: &str, height: u16, bold: bool, x: i32, y: i32, text: &[u8], c: u8) -> i32 {
+        match self.assets.font(face, height, bold) {
+            Some(f) => self.surface.text(f, x, y, text, c),
+            None => 0,
+        }
+    }
+
+    /// The width `text` would take in that font.
+    #[must_use]
+    pub fn text_width(&self, face: &str, height: u16, bold: bool, text: &[u8]) -> i32 {
+        self.assets
+            .font(face, height, bold)
+            .map_or(0, |f| i32::try_from(f.width(text)).unwrap_or(0))
+    }
+}
+
+/// The index of the colour in `palette` nearest `rgb`.
+#[must_use]
+pub fn nearest(palette: &[[u8; 3]; 256], rgb: [u8; 3]) -> u8 {
+    let d = |p: &[u8; 3]| -> u32 { p.iter().zip(rgb).map(|(&a, b)| u32::from(a.abs_diff(b)).pow(2)).sum() };
+    let i = (0..256).min_by_key(|&i| d(&palette[i])).unwrap_or(0);
+    u8::try_from(i).unwrap_or(0)
 }
 
 /// A gadget class's behaviour: the slots of `cGadget`'s vtable the class
@@ -319,17 +398,56 @@ pub trait Behavior: Any {
     /// top left.
     fn click(&mut self, _core: &mut Core, _io: &mut Io<'_>, _x: i32, _y: i32) {}
 
-    /// Slot 0x1c: back to the state before running.
+    /// Slot 0x1c: back to the state before running (on creation and when
+    /// a run stops).
     fn reset(&mut self, core: &mut Core) {
-        core.state = false;
+        core.base_reset();
     }
 
     /// Slot 0x20: the widget starts running.
-    fn start(&mut self, _core: &mut Core, _io: &mut Io<'_>) {}
+    fn start(&mut self, core: &mut Core, io: &mut Io<'_>) {
+        io.base_start(core);
+    }
 
-    /// Slots 0x24 to 0x38: what output `knot` gives.
-    fn output(&self, _core: &Core, _knot: usize) -> Value {
-        Value::None
+    /// Slots 0x24/0x28: whether output `knot` gives a boolean, and which.
+    fn has_bool(&self, _core: &Core, _knot: usize) -> bool {
+        false
+    }
+
+    fn bool_out(&self, core: &Core, _knot: usize) -> bool {
+        core.state
+    }
+
+    /// Slots 0x2c/0x30: whether output `knot` gives a number, and which.
+    fn has_number(&self, _core: &Core, _knot: usize) -> bool {
+        false
+    }
+
+    fn number_out(&self, core: &Core, _knot: usize) -> f64 {
+        core.number
+    }
+
+    /// Slots 0x34/0x38: whether output `knot` gives an object, and which.
+    fn has_object(&self, _core: &Core, _knot: usize) -> bool {
+        false
+    }
+
+    fn object_out(&self, core: &Core, _knot: usize) -> Option<Object> {
+        core.object.clone()
+    }
+
+    /// What output `knot` gives, as a reader asks (`0x41e56e`): an object
+    /// first, then a number, then a boolean. Not overridden.
+    fn output(&self, core: &Core, knot: usize) -> Value {
+        if self.has_object(core, knot) {
+            self.object_out(core, knot).map_or(Value::None, Value::Object)
+        } else if self.has_number(core, knot) {
+            Value::Number(self.number_out(core, knot))
+        } else if self.has_bool(core, knot) {
+            Value::Bool(self.bool_out(core, knot))
+        } else {
+            Value::None
+        }
     }
 
     /// Slot 0x50: the settings changed (after the dialog, and on load).

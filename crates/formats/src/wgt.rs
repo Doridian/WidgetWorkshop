@@ -4,7 +4,8 @@
 //!
 //! - `fver`: the format version (`u16`, 1 to 4; the shipped widgets are 4).
 //! - `back`: the worksheet's background (`u16`).
-//! - `Gmun`: which puzzle the widget is (`0x432b3c`).
+//! - `numG`: the parts tray's limits, a puzzle's (`0x432b3c`): a `u16`
+//!   count, then each part's tag and an `i16` count (-1 unlimited).
 //! - `conn`: a wire between two gadgets ([`Connection`]).
 //! - anything else: a gadget, the chunk's tag its class (`cnst`, `AndG`,
 //!   ...), its data the object as the Mac wrote it; the gadget's class reads

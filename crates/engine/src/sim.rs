@@ -4,7 +4,7 @@
 //! sender sets (`0x41e6cf`) and the reader clears as it reads it
 //! (`0x41e713`).
 
-use crate::gadget::{Core, Gadget, Value};
+use crate::gadget::{Core, Gadget, NONE, Value};
 
 /// A wire from an output to an input (`cConnection`).
 #[derive(Debug, Clone, PartialEq)]
@@ -15,7 +15,7 @@ pub struct Wire {
     /// The gadget with the input.
     pub to: usize,
     pub to_knot: usize,
-    /// Saved from format 3 on (`+0x25`).
+    /// Locked (`+0x25`, a puzzle's wire), saved from format 3 on.
     pub flag: u8,
     /// Bends on the way, on the worksheet (`h`, `v`).
     pub points: Vec<(i32, i32)>,
@@ -119,7 +119,8 @@ impl Io<'_> {
         self.gadgets.get(i).is_some_and(|g| g.core.id == core.id)
     }
 
-    /// Input `knot` as a number (a boolean is 1 or 0); 0 unwired.
+    /// Input `knot` as a number (`0x41e56e`): a boolean or an object is 1
+    /// or 0; 0 unwired.
     #[must_use]
     pub fn number(&self, core: &Core, knot: usize) -> f64 {
         self.input(core, knot).number().unwrap_or(0.0)
@@ -134,8 +135,8 @@ impl Io<'_> {
         }
     }
 
-    /// Output `knot`'s value changed; returns whether it's wired.
-    pub fn send(&mut self, core: &Core, knot: usize) -> bool {
+    /// Output `knot`'s value changed (`0x41e6cf`); returns whether it's wired.
+    pub fn fire(&mut self, core: &Core, knot: usize) -> bool {
         match core.knots.get(knot).and_then(|k| k.wire) {
             Some(w) => match self.wires.get_mut(w) {
                 Some(w) => {
@@ -152,5 +153,63 @@ impl Io<'_> {
     #[must_use]
     pub fn wired(&self, core: &Core, knot: usize) -> bool {
         core.knots.get(knot).is_some_and(|k| k.wire.is_some())
+    }
+
+    /// Ticks since the run's first tick, which sees 0 (`doc+0x4b`).
+    #[must_use]
+    pub fn elapsed(&self) -> u32 {
+        self.env.ticks
+    }
+
+    /// Passes at most once every `n + 1` ticks (`0x41e762`).
+    pub fn throttle(&self, core: &mut Core, n: u32) -> bool {
+        let now = self.elapsed();
+        if now.wrapping_sub(core.throttled_at) > n {
+            core.throttled_at = now;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether input `knot`'s value differs from the one cached (and caches
+    /// it), when it's wired (`0x41e62a`).
+    pub fn value_changed(&self, core: &mut Core, knot: usize) -> bool {
+        let v = self.number(core, knot);
+        let Some(c) = core.cache.get_mut(knot) else {
+            return false;
+        };
+        #[allow(clippy::float_cmp)]
+        if *c == v {
+            return false;
+        }
+        *c = v;
+        self.wired(core, knot)
+    }
+
+    /// The base class's start (`0x41e50a`): every input's cache "none"
+    /// and its wire unchanged, or (usually) every input's value cached.
+    pub fn base_start(&mut self, core: &mut Core) {
+        for k in 0..core.knots.len().min(core.cache.len()) {
+            if core.empty_cache {
+                core.cache[k] = NONE;
+                self.changed(core, k);
+            } else {
+                core.cache[k] = self.number(core, k);
+            }
+        }
+    }
+
+    /// Plays sound resource `id` once (`0x4402cc`).
+    pub fn play(&mut self, id: u32) -> u64 {
+        let voice = self.env.voice();
+        self.env.sounds.push(SoundCmd::Play {
+            voice,
+            sound: SoundRef::Resource(id),
+            looping: false,
+            speed: 1.0,
+            volume: 1.0,
+        });
+        voice
     }
 }

@@ -8,7 +8,7 @@
 //! - 1013 (`0x3f5`): one rect.
 //! - 1014 (`0x3f6`): a gadget's knots (`0x41db6c`), `u16` count then
 //!   `v`, `h` and a `u16` kind each (0 an input, 1 an output).
-//! - 1021 (`0x3fd`): a gadget's info, four `u16`s (`0x41141f`).
+//! - 1021 (`0x3fd`): a gadget's info, four `u16`s (read by the dialog code, `0x41acb9`).
 //! - 1022 (`0x3fe`, in `WIDGET.EXE`): a combo box's strings ([`strings`]).
 
 use crate::hr::Rect;
@@ -101,7 +101,7 @@ pub fn knots(d: &[u8]) -> Vec<KnotDef> {
         .collect()
 }
 
-/// Type 1021: a gadget's numbers, as `0x41141f` reads them.
+/// Type 1021: a gadget's numbers: id, kind, dialog, Doc text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct GadgetInfo {
     /// The gadget's own id (its resources' number).
