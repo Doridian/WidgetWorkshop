@@ -5,6 +5,7 @@ pub mod bmp;
 pub mod cursor;
 pub mod dialog;
 pub mod fnt;
+pub mod hlp;
 pub mod hr;
 pub mod ini;
 pub mod iso;

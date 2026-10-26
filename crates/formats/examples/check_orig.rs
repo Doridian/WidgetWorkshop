@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use formats::{dialog, fnt, hr, pe, tables, wgt};
+use formats::{dialog, fnt, hlp, hr, pe, tables, wgt};
 
 fn main() {
     let orig = std::env::args()
@@ -54,6 +54,17 @@ fn main() {
     for id in [1, 7, 157, 251, 501] {
         println!("string {id}: {:?}", exe.string(id));
     }
+
+    let help = hlp::HelpFile::parse(&read(win.join("WIDGET.HLP"))).unwrap();
+    for name in help.baggage.keys() {
+        help.bitmap(name).unwrap_or_else(|e| panic!("WIDGET.HLP {name}: {e}"));
+    }
+    println!(
+        "WIDGET.HLP: {} topics, {} contexts, {} bitmaps",
+        help.topics.len(),
+        help.contexts.len(),
+        help.baggage.len()
+    );
 
     let svga = orig.join("WIN31/SVGA");
     for f in ["SSERIFE.FON", "SMALLE.FON"] {
