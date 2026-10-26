@@ -224,11 +224,7 @@ impl Assets {
     /// ascending.
     #[must_use]
     pub fn ids(&self, m: Module, typ: u32) -> Vec<u32> {
-        let mut ids: Vec<u32> = self
-            .modules
-            .get(&m)
-            .map(|r| r.ids(typ).collect())
-            .unwrap_or_default();
+        let mut ids: Vec<u32> = self.modules.get(&m).map(|r| r.ids(typ).collect()).unwrap_or_default();
         ids.extend(
             self.overrides
                 .range((m, typ, 0)..=(m, typ, u32::MAX))
@@ -270,7 +266,8 @@ impl Assets {
     /// The palette (`WIDGET.EXE` 1003/101).
     #[must_use]
     pub fn palette(&self) -> [[u8; 3]; 256] {
-        self.get(Module::Exe, rt::PALETTE, 101).map_or_else(default_palette, formats::tables::palette)
+        self.get(Module::Exe, rt::PALETTE, 101)
+            .map_or_else(default_palette, formats::tables::palette)
     }
 
     /// The font of `face` closest to `height` pixels, if any.
@@ -328,7 +325,11 @@ impl Source for Dir {
     fn list(&self, path: &str) -> Vec<String> {
         self.find(path)
             .and_then(|p| std::fs::read_dir(p).ok())
-            .map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }

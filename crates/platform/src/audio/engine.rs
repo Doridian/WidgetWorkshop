@@ -142,7 +142,11 @@ impl Engine {
 
     /// Renders the next `out.len() / channels` frames, interleaved, as
     /// -1.0..1.0, every channel the same.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub fn render(&mut self, out: &mut [f32], channels: usize) {
         let channels = channels.max(1);
         let rate = f64::from(self.rate);

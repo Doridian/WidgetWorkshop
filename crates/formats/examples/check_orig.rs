@@ -6,7 +6,9 @@ use std::path::PathBuf;
 use formats::{dialog, fnt, hr, pe, tables, wgt};
 
 fn main() {
-    let orig = std::env::args().nth(1).map_or_else(|| PathBuf::from("orig"), PathBuf::from);
+    let orig = std::env::args()
+        .nth(1)
+        .map_or_else(|| PathBuf::from("orig"), PathBuf::from);
     let win = orig.join("WIN95/WIDGET");
     let read = |p: PathBuf| std::fs::read(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
     let exe = pe::Resources::parse(&read(win.join("WIDGET.EXE"))).unwrap();
@@ -19,14 +21,19 @@ fn main() {
         for id in res.ids(1004).collect::<Vec<_>>() {
             let sheet = hr::Sheet::parse(res.get(1004, id).unwrap()).unwrap();
             for n in 1..=u16::try_from(sheet.len()).unwrap() {
-                sheet.decode(n).unwrap_or_else(|e| panic!("{name} sheet {id} frame {n}: {e}"));
+                sheet
+                    .decode(n)
+                    .unwrap_or_else(|e| panic!("{name} sheet {id} frame {n}: {e}"));
                 frames += 1;
             }
         }
     }
     println!("{frames} frames decoded");
 
-    let waves = snd.ids(1006).filter(|&id| tables::Wave::parse(snd.get(1006, id).unwrap()).is_some()).count();
+    let waves = snd
+        .ids(1006)
+        .filter(|&id| tables::Wave::parse(snd.get(1006, id).unwrap()).is_some())
+        .count();
     println!("{waves} of {} sounds parsed", snd.ids(1006).count());
 
     let mut dialogs = 0;
@@ -68,7 +75,12 @@ fn main() {
                 .filter(|c| &c.tag == b"conn")
                 .inspect(|c| drop(wgt::Connection::parse(&c.data, v).unwrap()))
                 .count();
-            println!("{}: v{v} {} chunks, {conns} wires: {}", e.file_name().display(), tags.len(), tags.join(" "));
+            println!(
+                "{}: v{v} {} chunks, {conns} wires: {}",
+                e.file_name().display(),
+                tags.len(),
+                tags.join(" ")
+            );
         }
     }
 }

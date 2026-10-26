@@ -80,7 +80,10 @@ impl Settings {
     #[must_use]
     pub fn from_be(b: &[u8]) -> Settings {
         let mut s = Settings::default();
-        let be = |at: usize| b.get(at..at + 4).map_or(0, |x| u32::from_be_bytes([x[0], x[1], x[2], x[3]]));
+        let be = |at: usize| {
+            b.get(at..at + 4)
+                .map_or(0, |x| u32::from_be_bytes([x[0], x[1], x[2], x[3]]))
+        };
         s.checks = be(0);
         for i in 0..4 {
             s.radios[i] = b.get(4 + i).copied().unwrap_or(0);
@@ -281,7 +284,10 @@ pub struct DrawCx<'a> {
 impl DrawCx<'_> {
     /// Frame `n` of the gadget's sheet `sheet` at `x`, `y` on the worksheet.
     pub fn frame(&mut self, sheet: u32, n: u16, x: i32, y: i32) {
-        if let Some(img) = self.pictures.frame(self.assets, crate::assets::Module::Gadget, sheet, n) {
+        if let Some(img) = self
+            .pictures
+            .frame(self.assets, crate::assets::Module::Gadget, sheet, n)
+        {
             self.surface.blit(&img, x, y);
         }
     }
@@ -289,9 +295,10 @@ impl DrawCx<'_> {
     /// Frame `n` placed by its own rectangle relative to `x`, `y`.
     pub fn frame_at_rect(&mut self, sheet: u32, n: u16, x: i32, y: i32) {
         let m = crate::assets::Module::Gadget;
-        if let (Some(img), Some(r)) =
-            (self.pictures.frame(self.assets, m, sheet, n), self.pictures.rect(self.assets, m, sheet, n))
-        {
+        if let (Some(img), Some(r)) = (
+            self.pictures.frame(self.assets, m, sheet, n),
+            self.pictures.rect(self.assets, m, sheet, n),
+        ) {
             self.surface.blit(&img, x + i32::from(r.left), y + i32::from(r.top));
         }
     }

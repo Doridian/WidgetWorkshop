@@ -91,7 +91,9 @@ impl Document {
         doc.next_id = doc.gadgets.iter().map(|g| g.core.id).max().unwrap_or(0).wrapping_add(1);
         for c in conns {
             let find = |id: u32| doc.gadgets.iter().position(|g| g.core.id == id);
-            let (Some(from), Some(to)) = (find(c.from), find(c.to)) else { continue };
+            let (Some(from), Some(to)) = (find(c.from), find(c.to)) else {
+                continue;
+            };
             doc.connect(
                 from,
                 usize::from(c.from_knot),

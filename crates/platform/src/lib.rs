@@ -322,7 +322,7 @@ impl<A: App> Runner<A> {
         event_loop.exit();
     }
 
-        /// In the browser: takes the display once its GPU is set up.
+    /// In the browser: takes the display once its GPU is set up.
     #[cfg(target_arch = "wasm32")]
     fn take_display(&mut self, event_loop: &ActiveEventLoop) {
         let Some((_, slot)) = &self.pending else { return };

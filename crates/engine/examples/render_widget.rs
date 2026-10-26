@@ -43,5 +43,9 @@ fn main() {
     for p in &s.pixels {
         f.write_all(&pal[usize::from(*p)]).unwrap();
     }
-    println!("{} gadgets, {} wires, extent {ext:?}", doc.gadgets.len(), doc.wires.len());
+    println!(
+        "{} gadgets, {} wires, extent {ext:?}",
+        doc.gadgets.len(),
+        doc.wires.len()
+    );
 }

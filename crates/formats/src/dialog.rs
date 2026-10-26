@@ -246,9 +246,17 @@ impl Dialog {
 /// A menu item: a command with its id, a separator, or a popup.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MenuItem {
-    Command { id: u16, text: String, flags: u16 },
+    Command {
+        id: u16,
+        text: String,
+        flags: u16,
+    },
     Separator,
-    Popup { text: String, flags: u16, items: Vec<MenuItem> },
+    Popup {
+        text: String,
+        flags: u16,
+        items: Vec<MenuItem>,
+    },
 }
 
 /// `MF_POPUP`, `MF_END`, `MF_GRAYED`, `MF_CHECKED`.

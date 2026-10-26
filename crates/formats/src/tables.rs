@@ -199,7 +199,9 @@ impl Wave {
                 .chunks_exact(2 * channels)
                 .map(|f| {
                     let sum: i32 = f
-                        .as_chunks::<2>().0.iter()
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
                         .map(|s| i32::from(i16::from_le_bytes([s[0], s[1]])))
                         .sum();
                     let avg = sum / i32::try_from(channels).unwrap_or(1);

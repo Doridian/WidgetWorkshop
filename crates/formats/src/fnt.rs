@@ -156,6 +156,9 @@ impl Font {
     /// The width of `text` in pixels.
     #[must_use]
     pub fn width(&self, text: &[u8]) -> u32 {
-        text.iter().filter_map(|&c| self.glyph(c)).map(|g| u32::from(g.width)).sum()
+        text.iter()
+            .filter_map(|&c| self.glyph(c))
+            .map(|g| u32::from(g.width))
+            .sum()
     }
 }

@@ -65,7 +65,12 @@ impl IRect {
 
     #[must_use]
     pub fn intersect(self, o: IRect) -> IRect {
-        IRect::new(self.x0.max(o.x0), self.y0.max(o.y0), self.x1.min(o.x1), self.y1.min(o.y1))
+        IRect::new(
+            self.x0.max(o.x0),
+            self.y0.max(o.y0),
+            self.x1.min(o.x1),
+            self.y1.min(o.y1),
+        )
     }
 
     #[must_use]
@@ -76,7 +81,12 @@ impl IRect {
         if o.is_empty() {
             return self;
         }
-        IRect::new(self.x0.min(o.x0), self.y0.min(o.y0), self.x1.max(o.x1), self.y1.max(o.y1))
+        IRect::new(
+            self.x0.min(o.x0),
+            self.y0.min(o.y0),
+            self.x1.max(o.x1),
+            self.y1.max(o.y1),
+        )
     }
 
     #[must_use]
@@ -149,7 +159,9 @@ impl Surface {
     pub fn get(&self, x: i32, y: i32) -> Option<u8> {
         let (x, y) = (x + self.origin.0, y + self.origin.1);
         #[allow(clippy::cast_sign_loss)]
-        self.bounds().contains(x, y).then(|| self.pixels[(y * self.width + x) as usize])
+        self.bounds()
+            .contains(x, y)
+            .then(|| self.pixels[(y * self.width + x) as usize])
     }
 
     pub fn fill(&mut self, r: IRect, c: u8) {
@@ -297,10 +309,7 @@ impl Pictures {
         if let Some(f) = self.frames.borrow().get(&(m, id, n)) {
             return f.clone();
         }
-        let img = self
-            .sheet(assets, m, id)
-            .and_then(|s| s.decode(n).ok())
-            .map(Rc::new);
+        let img = self.sheet(assets, m, id).and_then(|s| s.decode(n).ok()).map(Rc::new);
         self.frames.borrow_mut().insert((m, id, n), img.clone());
         img
     }
