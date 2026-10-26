@@ -37,8 +37,8 @@ pub fn fit_size(i: usize) -> (i32, i32) {
     FIT_SIZES.get(i).copied().unwrap_or(FIT_SIZES[0])
 }
 
-const CAPTION_H: i32 = 18;
-const FRAME: i32 = 3;
+pub(super) const CAPTION_H: i32 = 18;
+pub(super) const FRAME: i32 = 3;
 /// The Doc balloon (103), its button (150), the picture (102).
 const DOC: u16 = 103;
 const DOC_BUTTON: u16 = 150;
@@ -125,7 +125,7 @@ pub struct Dialog {
 
 /// The dialog base units of the template's font (`GetDialogBaseUnits` for
 /// MS Sans Serif 8: the average letter width and the height).
-fn base_units(assets: &Assets) -> (i32, i32) {
+pub(super) fn base_units(assets: &Assets) -> (i32, i32) {
     match ui::font(assets) {
         Some(f) => {
             let w = ui::width(f, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
@@ -135,7 +135,7 @@ fn base_units(assets: &Assets) -> (i32, i32) {
     }
 }
 
-fn mul_div(a: i32, b: i32, c: i32) -> i32 {
+pub(super) fn mul_div(a: i32, b: i32, c: i32) -> i32 {
     let n = i64::from(a) * i64::from(b);
     let c = i64::from(c);
     let r = if n >= 0 { (n + c / 2) / c } else { (n - c / 2) / c };
@@ -434,7 +434,7 @@ impl Dialog {
     }
 
     fn close_box(&self) -> IRect {
-        IRect::sized(self.window.x1 - FRAME - 2 - 16, self.window.y0 + FRAME + 2, 16, 14)
+        close_box(self.window)
     }
 
     /// The open list's rectangle (client coordinates) and its items' height.
@@ -608,27 +608,7 @@ impl Dialog {
     #[allow(clippy::too_many_lines)]
     pub fn draw(&self, s: &mut Surface, assets: &Assets, pictures: &Pictures, gadget: Option<&Gadget>, lights: bool) {
         let Some(font) = ui::font(assets) else { return };
-        let w = self.window;
-        s.fill(w, ui::FACE);
-        ui::raised(s, w);
-        let cap = IRect::new(w.x0 + FRAME, w.y0 + FRAME, w.x1 - FRAME, w.y0 + FRAME + CAPTION_H);
-        s.fill(cap, ui::NAVY);
-        s.text(
-            font,
-            cap.x0 + 3,
-            cap.y0 + 2,
-            &crate::text::encode(&self.title),
-            ui::WHITE,
-        );
-        let cb = self.close_box();
-        ui::button(s, font, cb, "", self.pressed == Some(usize::MAX), false, true);
-        // The close box's ×.
-        for d in 0..6 {
-            for t in 0..2 {
-                s.pset(cb.x0 + 4 + d + t, cb.y0 + 3 + d, ui::BLACK);
-                s.pset(cb.x0 + 9 - d + t, cb.y0 + 3 + d, ui::BLACK);
-            }
-        }
+        draw_window(s, font, self.window, &self.title, self.pressed == Some(usize::MAX));
         let old = s.clip();
         s.set_clip(self.client.intersect(old));
         let (ox, oy) = (self.client.x0, self.client.y0);
@@ -812,6 +792,30 @@ impl Dialog {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// The close box of a dialog window at `window` (frame coordinates).
+pub(super) fn close_box(window: IRect) -> IRect {
+    IRect::sized(window.x1 - FRAME - 2 - 16, window.y0 + FRAME + 2, 16, 14)
+}
+
+/// A dialog's window: the raised frame, the caption with `title` and the
+/// close box (held down if `close_pressed`).
+pub(super) fn draw_window(s: &mut Surface, font: &formats::fnt::Font, w: IRect, title: &str, close_pressed: bool) {
+    s.fill(w, ui::FACE);
+    ui::raised(s, w);
+    let cap = IRect::new(w.x0 + FRAME, w.y0 + FRAME, w.x1 - FRAME, w.y0 + FRAME + CAPTION_H);
+    s.fill(cap, ui::NAVY);
+    s.text(font, cap.x0 + 3, cap.y0 + 2, &crate::text::encode(title), ui::WHITE);
+    let cb = close_box(w);
+    ui::button(s, font, cb, "", close_pressed, false, true);
+    // The close box's ×.
+    for d in 0..6 {
+        for t in 0..2 {
+            s.pset(cb.x0 + 4 + d + t, cb.y0 + 3 + d, ui::BLACK);
+            s.pset(cb.x0 + 9 - d + t, cb.y0 + 3 + d, ui::BLACK);
         }
     }
 }

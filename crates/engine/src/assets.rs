@@ -11,7 +11,8 @@
 //! `id` are the resource's numbers (1004 picture sheets, 1006 sounds, 1014
 //! knots, 1020 texts, ...); the extension doesn't matter (`.hr`, `.wav`,
 //! `.txt`, `.bin`). `widget --export DIR` writes every resource in this
-//! layout, a starting point for new art. Fonts are `fonts/*.FON`.
+//! layout, a starting point for new art. Fonts are `fonts/*.FON`, and a
+//! `WIDGET.PZL` at the top replaces the CD's puzzles.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -83,6 +84,9 @@ pub mod rt {
 /// Where the game's folder is on a CD or in a folder, most likely first:
 /// the Win95 build, the Windows 3.1 one, or the folder itself.
 pub const GAME_DIRS: [&str; 4] = ["WIN95/WIDGET", "WIN31/WIDGET", "WIDGET", ""];
+/// The puzzle file, next to `WIDGET.EXE` (`0x42d3fc`), or at the top of
+/// the overrides.
+pub const PUZZLE_FILE: &str = "WIDGET.PZL";
 /// The Windows 3.1 bitmap fonts the CD carries for its own setup.
 pub const FONT_DIR: &str = "WIN31/SVGA";
 
@@ -121,7 +125,8 @@ pub struct Assets {
     pub fonts: Vec<fnt::Font>,
     /// The sample widgets (`FUNWIDGE/*.WGT`) on the CD: name and bytes.
     pub samples: Vec<(String, Vec<u8>)>,
-    /// The puzzles (`WIDGET.PZL`), if found.
+    /// The puzzle file (`WIDGET.PZL`, `formats::pzl`), if found: the
+    /// overrides', else the CD's.
     pub puzzles: Option<Vec<u8>>,
     /// The sounds made from resources so far.
     sounds: std::cell::RefCell<BTreeMap<u32, crate::gadget::SoundData>>,
@@ -184,11 +189,14 @@ impl Assets {
                 self.samples.push((name, b));
             }
         }
-        self.puzzles = cd.read(&join(dir, "WIDGET.PZL"));
+        self.puzzles = cd.read(&join(dir, PUZZLE_FILE));
         Ok(())
     }
 
     fn load_overrides(&mut self, o: &dyn Source) {
+        if let Some(b) = o.read(PUZZLE_FILE) {
+            self.puzzles = Some(b);
+        }
         for m in Module::ALL {
             for typ in o.list(m.dir()) {
                 let Ok(t) = typ.parse::<u32>() else { continue };

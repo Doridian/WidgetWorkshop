@@ -260,7 +260,10 @@ it to `0x4332b6`, which calls **`0x416f1a FileLoadPuzzle(file)`**:
    frees the data.
 6. It switches the tray to its normal view (`0x4325e0(tray, 0)`) and sets
    `file+0x102 = 1` and `file+0x101 = 0`. The modified flag is not cleared
-   here.
+   here, and unlike Open (`0x416348`) it does not drop the undo step
+   (`0x415471`), so Edit ▸ Undo right after loading a puzzle brings back
+   the previous worksheet with the puzzle still active. Revert of a puzzle
+   keeps the undo step too.
 
 ### 2.3 The dialog (`cPuzzleDlg`)
 
@@ -305,8 +308,10 @@ Dialog template 10000 (`ghidra/res/WIDGET/5/10000.bin`), caption
   `*outData = GetResource('Puzl', sel+1, outSize)`, and ends with 1.
 - **IDCANCEL (2)**: ends with 2.
 - **0x69 Reset**: asks *"Do you really want to mark all puzzles as
-  unsolved?\nThis is a permanent change\n"* (`0x45f99f(msg, 1, 0)`, Yes
-  = 1). On Yes it reads the flags, zeroes everything after the count word,
+  unsolved?\nThis is a permanent change\n"* (`0x45f99f(msg, 1, 0)`, which
+  is `AfxMessageBox(text, nType, nIDHelp)`: it only calls the app's
+  `DoMessageBox`, vtable `+0x6c`. So the box is `MB_OKCANCEL` with OK and
+  Cancel buttons, and the result 1 it tests for is `IDOK`). On Yes it reads the flags, zeroes everything after the count word,
   and writes them back (`0x42d915`, which updates both the `Done` resource
   and the INI). For every list line whose first character is not `' '`,
   it sets that character to `' '` and replaces the line
@@ -469,6 +474,7 @@ unlimited, the normal state.
 | Open (`0xe101`) | `0x415936` → `0x416348` | same prompt rule. Loading a file clears the puzzle |
 | Save (`0xe103`) | `0x415a3b` | always goes to Save As when a puzzle is active |
 | Save As (`0xe104`) | `0x415c1f` | default name `"puzzle"`. **Unless doc `+0x55` (author mode) is set or Shift is held**, it first unlocks every gadget and wire (`0x426511`) and resets the tray to unlimited (`0x4329e0`). The saved `.WGT` is then an ordinary, unrestricted widget with no `numG`. With Shift held the locks and limits are saved. After a successful save it calls `cPuzzle::Clear`, so the widget is no longer a puzzle and a later Win marks nothing |
+| Exit (`0xe141`) | `0x417027` | asks to save even for a puzzle (no puzzle check), with the name `"puzzle"`; Yes stops the widget and runs Save, which goes to Save As |
 | Revert (`0x8004`) | `0x415ece` | asks 8002 *"Revert to original puzzle?"* instead of 8001. It reloads `Puzl` #`+0x12` from the PZL (`0x42d530 cPuzzle::Reload`, which reopens the file and sets `+0x14 = 1` again), resets the tray, and reloads |
 | Save Into Stand-Alone (`0x8006`) | `0x4165a7` | default name `"puzzle"`. The puzzle stays active |
 | Import Stand-Alone (`0x8005`) | `0x416bf5` | clears the puzzle |
@@ -637,7 +643,5 @@ used to build the PZL.
   window `+0x1348`) is not settled. It is not used by puzzles.
 - The sheet behind `DAT_004a273c` (the lock badge drawn in author mode) was
   not identified.
-- `0x45f99f`'s second argument (1) is assumed to mean Yes/No, with 1
-  returned for Yes. This was not checked against its body.
 - Load Puzzle does not clear the document's modified flag (`file+0x100`).
   This is harmless, because puzzles never prompt.

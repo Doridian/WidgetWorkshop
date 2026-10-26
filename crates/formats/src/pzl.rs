@@ -411,4 +411,65 @@ mod tests {
         assert_eq!(&d[..8], &[true, true, true, true, false, false, false, false]);
         assert!(d[24]);
     }
+
+    /// The shipped `WIDGET.PZL` (extracted to `orig`; skipped without).
+    fn shipped() -> Option<Vec<u8>> {
+        let p = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../orig/WIN95/WIDGET/WIDGET.PZL");
+        std::fs::read(p).ok()
+    }
+
+    #[test]
+    fn reads_the_shipped_file() {
+        let Some(file) = shipped() else {
+            eprintln!("no orig: skipped");
+            return;
+        };
+        assert_eq!(file.len(), 242_671);
+        let p = Puzzles::parse(&file).unwrap();
+        let titles: Vec<String> = p.puzzles.iter().map(Puzzle::title).collect();
+        assert_eq!(
+            titles,
+            [
+                "White Color",
+                "Turn It On",
+                "The Millionaire",
+                "Lightbulbs",
+                "Guess the Note",
+                "More Lightbulbs",
+                "Doc's Diabolical Adder",
+                "Count To Ten!",
+                "Barking Dogs",
+                "Wake the Chickens",
+                "Clues",
+                "Still More Lightbulbs",
+                "Moon Baseball",
+                "Marquee",
+                "Mad Multiplier",
+                "Heads or Tails",
+                "Gravity Chamber Test",
+                "Fast Counter",
+                "Elephant Fall",
+                "Beat the Clock",
+                "Bank Vault",
+                "Projector Puzzle",
+                "How Many Earths",
+                "Doc's Animal Clock",
+                "A Rose is a Rose",
+            ]
+        );
+        for (i, z) in p.puzzles.iter().enumerate() {
+            assert_eq!(usize::try_from(z.id).unwrap(), i + 1);
+            let form = crate::wgt::Form::parse(&z.widget).unwrap();
+            assert_eq!(form.version(), Some(4), "puzzle {}", z.id);
+            // Exactly one Win / Lose Checker, and a 64-entry `numG`.
+            assert_eq!(form.chunks.iter().filter(|c| &c.tag == b"Stop").count(), 1);
+            let numg = form.chunks.iter().find(|c| &c.tag == b"numG").unwrap();
+            assert_eq!(crate::wgt::be16(&numg.data, 0).ok(), Some(64));
+        }
+        // The `Done` resource: 25 flags, none set; the stale count word 1.
+        assert_eq!(p.done, vec![false; 25]);
+        let r = ResFork::parse(&file).unwrap().find(DONE, 1).unwrap().clone();
+        assert_eq!(r.data_len, 52);
+        assert_eq!(&file[r.data_at..r.data_at + 2], &[0, 1]);
+    }
 }

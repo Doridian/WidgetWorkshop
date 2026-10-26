@@ -8,5 +8,6 @@ pub mod editor;
 pub mod gadget;
 pub mod gadgets;
 pub mod gfx;
+pub mod puzzle;
 pub mod sim;
 pub mod text;

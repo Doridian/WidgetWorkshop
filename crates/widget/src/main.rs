@@ -10,6 +10,7 @@
 //! `--export` writes every resource there in that layout and quits.
 
 mod cd;
+mod profile;
 mod sound;
 
 use std::path::PathBuf;
@@ -31,7 +32,8 @@ const USAGE: &str = "usage: widget [--overrides=DIR] [--export=DIR] [--no-audio]
                    (default: the .iso in the current directory, else orig)
   WIDGET.WGT       a widget to open
   --overrides=DIR  resources that replace or add to the CD's:
-                   DIR/<MODULE>/<type>/<id>.<ext>, fonts in DIR/fonts
+                   DIR/<MODULE>/<type>/<id>.<ext>, fonts in DIR/fonts,
+                   puzzles in DIR/WIDGET.PZL
   --export=DIR     write every resource to DIR in that layout and quit
   --no-audio       no sound
   --window-size=WxH, --fullscreen, --windowed, --ui-scale=N
@@ -264,6 +266,10 @@ fn main() {
     let palette = assets.palette();
     let mut editor = Editor::new(assets, doc, platform::DEFAULT_DESKTOP.0, platform::DEFAULT_DESKTOP.1);
     editor.path = path;
+    // The solved puzzles (`Done=`), kept between runs.
+    if let Some(p) = profile::IniProfile::default_file() {
+        editor.profile = Box::new(p);
+    }
     // `0x415018`: the random generator starts at `(u32)time(NULL)`.
     editor.env.rng = chrono::Utc::now().timestamp().rem_euclid(1 << 32).unsigned_abs();
     let audio = if args.no_audio {

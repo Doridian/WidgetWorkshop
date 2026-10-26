@@ -6,6 +6,7 @@ pub mod cursor;
 pub mod dialog;
 pub mod fnt;
 pub mod hr;
+pub mod ini;
 pub mod iso;
 pub mod ne;
 pub mod pe;

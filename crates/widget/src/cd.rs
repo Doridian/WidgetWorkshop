@@ -50,7 +50,8 @@ fn extension(m: Module, typ: u32) -> &'static str {
 }
 
 /// Writes every resource of `assets` under `dir` as
-/// `<MODULE>/<type>/<id>.<ext>`; returns how many.
+/// `<MODULE>/<type>/<id>.<ext>`, and the puzzle file as `WIDGET.PZL`;
+/// returns how many files.
 ///
 /// # Errors
 /// If a file can't be written.
@@ -60,6 +61,11 @@ pub fn export(assets: &Assets, dir: &Path) -> io::Result<usize> {
         let d = dir.join(m.dir()).join(typ.to_string());
         std::fs::create_dir_all(&d)?;
         std::fs::write(d.join(format!("{id}.{}", extension(m, typ))), bytes)?;
+        n += 1;
+    }
+    if let Some(p) = &assets.puzzles {
+        std::fs::create_dir_all(dir)?;
+        std::fs::write(dir.join(engine::assets::PUZZLE_FILE), p)?;
         n += 1;
     }
     Ok(n)
