@@ -4,7 +4,8 @@
 //! sender sets (`0x41e6cf`) and the reader clears as it reads it
 //! (`0x41e713`).
 
-use crate::gadget::{Core, Gadget, NONE, Value};
+use crate::assets::Assets;
+use crate::gadget::{Core, Gadget, NONE, SoundData, Value};
 
 /// A wire from an output to an input (`cConnection`).
 #[derive(Debug, Clone, PartialEq)]
@@ -23,30 +24,22 @@ pub struct Wire {
     pub changed: bool,
 }
 
-/// What a sound request asks the platform for.
-#[derive(Debug, Clone, PartialEq)]
+/// What a sound request asks the platform for. The original's mixer
+/// (docs/gadgets/sound-time.md, 2.3) plays 8 voices at 11025 Hz with no
+/// volume; a sound at another rate is resampled to it, nearest neighbour
+/// (`PlayBuffer`, `0x4404a8`), and one below 172 Hz isn't played.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SoundCmd {
-    /// Play `sound` (a `WWSOUND.DLL` id, or a recorded one) as voice `voice`.
+    /// Play `sound` as voice `voice`.
     Play {
         voice: u64,
-        sound: SoundRef,
+        sound: SoundData,
         looping: bool,
-        speed: f64,
-        volume: f32,
     },
     Stop {
         voice: u64,
     },
     StopAll,
-}
-
-/// Which wave a sound plays.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SoundRef {
-    /// A sound resource (type 1006).
-    Resource(u32),
-    /// A recording the widget holds (a tape player's), by handle.
-    Recorded(u32),
 }
 
 /// What the running widget shares with the outside: the clock, the mouse,
@@ -83,6 +76,7 @@ impl Env {
 /// its inputs from), the wires and the environment. The gadget itself is
 /// taken out of the list while it runs.
 pub struct Io<'a> {
+    pub assets: &'a Assets,
     pub gadgets: &'a [Gadget],
     pub wires: &'a mut [Wire],
     pub env: &'a mut Env,
@@ -123,7 +117,11 @@ impl Io<'_> {
     /// or 0; 0 unwired.
     #[must_use]
     pub fn number(&self, core: &Core, knot: usize) -> f64 {
-        self.input(core, knot).number().unwrap_or(0.0)
+        if self.wired(core, knot) {
+            self.input(core, knot).number()
+        } else {
+            0.0
+        }
     }
 
     /// Whether input `knot`'s value changed since the last call (and clears
@@ -200,16 +198,21 @@ impl Io<'_> {
         }
     }
 
-    /// Plays sound resource `id` once (`0x4402cc`).
-    pub fn play(&mut self, id: u32) -> u64 {
+    /// Plays `sound` (looping or once) as a new voice; returns it.
+    pub fn play_sound(&mut self, sound: SoundData, looping: bool) -> u64 {
         let voice = self.env.voice();
-        self.env.sounds.push(SoundCmd::Play {
-            voice,
-            sound: SoundRef::Resource(id),
-            looping: false,
-            speed: 1.0,
-            volume: 1.0,
-        });
+        self.env.sounds.push(SoundCmd::Play { voice, sound, looping });
         voice
+    }
+
+    /// Plays sound resource `id` once at 11025 Hz (`0x4402cc`).
+    pub fn play(&mut self, id: u32) -> Option<u64> {
+        let s = self.assets.sound(id)?;
+        Some(self.play_sound(s, false))
+    }
+
+    /// Stops voice `voice`.
+    pub fn stop_sound(&mut self, voice: u64) {
+        self.env.sounds.push(SoundCmd::Stop { voice });
     }
 }

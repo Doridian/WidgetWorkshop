@@ -119,12 +119,6 @@ impl Document {
             tag: *b"back",
             data: self.background.to_be_bytes().to_vec(),
         });
-        if self.tray_limits.iter().any(|&(_, n)| n != -1) {
-            form.chunks.push(Chunk {
-                tag: *b"numG",
-                data: write_tray_limits(&self.tray_limits),
-            });
-        }
         for g in &self.gadgets {
             form.chunks.push(save_gadget(g));
         }
@@ -141,6 +135,13 @@ impl Document {
             form.chunks.push(Chunk {
                 tag: *b"conn",
                 data: conn.write(),
+            });
+        }
+        // The tray limits come last, after the wires (`0x424d0a`).
+        if self.tray_limits.iter().any(|&(_, n)| n != -1) {
+            form.chunks.push(Chunk {
+                tag: *b"numG",
+                data: write_tray_limits(&self.tray_limits),
             });
         }
         form.write()
@@ -228,7 +229,13 @@ impl Document {
     }
 
     /// Runs `f` on gadget `i` with an [`Io`] over the rest.
-    pub fn with_gadget<R>(&mut self, i: usize, env: &mut Env, f: impl FnOnce(&mut Gadget, &mut Io<'_>) -> R) -> R {
+    pub fn with_gadget<R>(
+        &mut self,
+        i: usize,
+        assets: &Assets,
+        env: &mut Env,
+        f: impl FnOnce(&mut Gadget, &mut Io<'_>) -> R,
+    ) -> R {
         let placeholder = Gadget {
             core: self.gadgets[i].core.clone(),
             behavior: Box::new(Unknown::default()),
@@ -236,6 +243,7 @@ impl Document {
         let mut g = std::mem::replace(&mut self.gadgets[i], placeholder);
         let r = {
             let mut io = Io {
+                assets,
                 gadgets: &self.gadgets,
                 wires: &mut self.wires,
                 env,
@@ -247,12 +255,12 @@ impl Document {
     }
 
     /// Starts running: every gadget's slot 0x20, wires unchanged.
-    pub fn start(&mut self, env: &mut Env) {
+    pub fn start(&mut self, assets: &Assets, env: &mut Env) {
         for w in &mut self.wires {
             w.changed = false;
         }
         for i in 0..self.gadgets.len() {
-            self.with_gadget(i, env, |g, io| g.behavior.start(&mut g.core, io));
+            self.with_gadget(i, assets, env, |g, io| g.behavior.start(&mut g.core, io));
         }
     }
 
@@ -267,9 +275,9 @@ impl Document {
     }
 
     /// One tick: every gadget's slot 0x44, in list order.
-    pub fn tick(&mut self, env: &mut Env) {
+    pub fn tick(&mut self, assets: &Assets, env: &mut Env) {
         for i in 0..self.gadgets.len() {
-            self.with_gadget(i, env, |g, io| g.behavior.tick(&mut g.core, io));
+            self.with_gadget(i, assets, env, |g, io| g.behavior.tick(&mut g.core, io));
         }
     }
 

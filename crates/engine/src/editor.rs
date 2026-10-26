@@ -97,7 +97,7 @@ impl Editor {
         self.env.ticks = 0;
         self.env.ms = 0;
         self.ms_rest = 0;
-        self.doc.start(&mut self.env);
+        self.doc.start(&self.assets, &mut self.env);
     }
 
     /// Stops the widget (back to editing).
@@ -123,7 +123,7 @@ impl Editor {
         let mut n = 0;
         while self.ms_rest >= 1000 && n < 8 {
             self.ms_rest -= 1000;
-            self.doc.tick(&mut self.env);
+            self.doc.tick(&self.assets, &mut self.env);
             self.env.keys.clear();
             self.env.ticks = self.env.ticks.wrapping_add(1);
             self.env.ms += 1000 / TICKS_PER_SECOND;
@@ -159,7 +159,7 @@ impl Editor {
             && let Some(i) = self.doc.gadget_at(h, v)
         {
             let (gh, gv) = (self.doc.gadgets[i].core.h, self.doc.gadgets[i].core.v);
-            self.doc.with_gadget(i, &mut self.env, |g, io| {
+            self.doc.with_gadget(i, &self.assets, &mut self.env, |g, io| {
                 g.behavior.click(&mut g.core, io, h - gh, v - gv);
             });
         }

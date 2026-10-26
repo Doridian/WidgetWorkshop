@@ -124,7 +124,7 @@ impl App for Workshop {
         let ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
         self.editor.update(ms, sound::local_time());
         let cmds = self.editor.take_sounds();
-        self.sound.play(&self.editor.assets, cmds);
+        self.sound.play(cmds);
         self.editor.draw();
     }
 

@@ -123,6 +123,8 @@ pub struct Assets {
     pub samples: Vec<(String, Vec<u8>)>,
     /// The puzzles (`WIDGET.PZL`), if found.
     pub puzzles: Option<Vec<u8>>,
+    /// The sounds made from resources so far.
+    sounds: std::cell::RefCell<BTreeMap<u32, crate::gadget::SoundData>>,
 }
 
 fn join(dir: &str, name: &str) -> String {
@@ -261,6 +263,31 @@ impl Assets {
         let b = self.get(m, rt::TEXT, id)?;
         let b = b.split(|&c| c == 0).next().unwrap_or_default();
         Some(crate::text::decode(b))
+    }
+
+    /// Sound resource `id` (`WWSOUND.DLL` 1006/`id`) as the game plays it
+    /// (`0x43e4a4`): every byte past the 44-byte RIFF header, at 11025 Hz
+    /// (the game assumes every sound is a plain 8-bit mono 11025 Hz wave;
+    /// the trailing bytes past the `data` chunk play too).
+    #[must_use]
+    pub fn sound(&self, id: u32) -> Option<crate::gadget::SoundData> {
+        if let Some(s) = self.sounds.borrow().get(&id) {
+            return Some(s.clone());
+        }
+        let b = self.get(Module::Sound, rt::SOUND, id)?;
+        // A new sound (an override) may be any PCM wave.
+        let s = match formats::tables::Wave::parse(b) {
+            Some(w) if self.overrides.contains_key(&(Module::Sound, rt::SOUND, id)) => crate::gadget::SoundData {
+                rate: u16::try_from(w.rate).unwrap_or(u16::MAX),
+                samples: w.samples.into(),
+            },
+            _ => crate::gadget::SoundData {
+                rate: 11025,
+                samples: b.get(0x2c..).unwrap_or_default().into(),
+            },
+        };
+        self.sounds.borrow_mut().insert(id, s.clone());
+        Some(s)
     }
 
     /// The palette (`WIDGET.EXE` 1003/101).

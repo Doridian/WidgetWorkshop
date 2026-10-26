@@ -177,35 +177,49 @@ pub enum Value {
     None,
     Bool(bool),
     Number(f64),
-    /// A sound or a picture, passed by reference.
-    Object(Object),
+    /// A sound or a picture, passed by reference (slot 0x38's pointer);
+    /// `None` is the null pointer of a silent part.
+    Object(Option<Object>),
 }
 
 impl Value {
-    /// As the input reader (`0x41e56e`) turns it into a number: a boolean
-    /// is 1 or 0.
+    /// As the input reader (`0x41e56e`) turns a wired source's output into
+    /// a number: a boolean or an object is 1 or 0, nothing is -1.
     #[must_use]
-    pub fn number(&self) -> Option<f64> {
+    pub fn number(&self) -> f64 {
         match self {
-            Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
-            Value::Number(n) => Some(*n),
-            Value::Object(o) => Some(if o.handle == 0 { 0.0 } else { 1.0 }),
-            Value::None => None,
+            Value::Bool(b) => f64::from(u8::from(*b)),
+            Value::Number(n) => *n,
+            Value::Object(o) => f64::from(u8::from(o.is_some())),
+            Value::None => -1.0,
+        }
+    }
+
+    /// The sound, if it's one.
+    #[must_use]
+    pub fn sound(&self) -> Option<&SoundData> {
+        match self {
+            Value::Object(Some(Object::Sound(s))) => Some(s),
+            _ => None,
         }
     }
 }
 
-/// An object travelling through a wire: a sound (or picture) by handle.
+/// An object travelling through a wire.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Object {
-    pub kind: ObjectKind,
-    pub handle: u32,
+pub enum Object {
+    /// A sound descriptor (`{u32 len, u16 rate, u8* data}`, at `+0x197`
+    /// in the parts that have one).
+    Sound(SoundData),
+    /// A picture, by the sheet it's frame 1 of.
+    Picture(u32),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ObjectKind {
-    Sound,
-    Picture,
+/// A sound: 8-bit unsigned mono samples, to play at `rate` Hz.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SoundData {
+    pub rate: u16,
+    pub samples: std::sync::Arc<[u8]>,
 }
 
 /// The "no value" a cached input starts at (`0xADDC4A11FF61B241`).
@@ -440,7 +454,7 @@ pub trait Behavior: Any {
     /// first, then a number, then a boolean. Not overridden.
     fn output(&self, core: &Core, knot: usize) -> Value {
         if self.has_object(core, knot) {
-            self.object_out(core, knot).map_or(Value::None, Value::Object)
+            Value::Object(self.object_out(core, knot))
         } else if self.has_number(core, knot) {
             Value::Number(self.number_out(core, knot))
         } else if self.has_bool(core, knot) {
