@@ -114,6 +114,32 @@ impl Bitmap {
     pub fn pixel(&self, x: usize, y: usize) -> u8 {
         self.pixels[y * self.width + x]
     }
+
+    /// The bitmap as a BMP file of the kind [`Bitmap::parse`] reads.
+    #[must_use]
+    pub fn to_bmp(&self) -> Vec<u8> {
+        let stride = self.width.div_ceil(4) * 4;
+        let bits_offset = 54 + 4 * 256;
+        let size = bits_offset + stride * self.height;
+        let u32_of = |n: usize| u32::try_from(n).unwrap_or(u32::MAX).to_le_bytes();
+        let mut d = b"BM".to_vec();
+        d.extend_from_slice(&u32_of(size));
+        d.extend_from_slice(&[0; 4]);
+        d.extend_from_slice(&u32_of(bits_offset));
+        d.extend_from_slice(&40u32.to_le_bytes());
+        d.extend_from_slice(&u32_of(self.width));
+        d.extend_from_slice(&u32_of(self.height));
+        d.extend_from_slice(&[1, 0, 8, 0]);
+        d.extend_from_slice(&[0; 24]);
+        for c in &self.palette {
+            d.extend_from_slice(&[c.b, c.g, c.r, 0]);
+        }
+        for row in self.pixels.chunks(self.width.max(1)).rev() {
+            d.extend_from_slice(row);
+            d.resize(d.len() + stride - row.len(), 0);
+        }
+        d
+    }
 }
 
 #[cfg(test)]
@@ -150,5 +176,6 @@ mod tests {
         let top_down = Bitmap::parse(&bmp(3, -2, &[&[1, 1, 0, 9], &[0, 1, 0, 9]])).unwrap();
         assert_eq!(top_down.pixel(0, 0), 1);
         assert_eq!(Bitmap::parse(&bmp(3, 3, &[&[0; 4]])), Err(Error::Truncated));
+        assert_eq!(Bitmap::parse(&b.to_bmp()), Ok(b));
     }
 }

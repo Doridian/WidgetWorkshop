@@ -51,10 +51,10 @@ pub fn cd(default: &Path) -> Option<PathBuf> {
 /// Whether `path` is the game's CD image; why not if it isn't.
 fn check(path: &Path) -> Result<(), String> {
     let cd = crate::cd::open(path)?;
-    if crate::cd::has_fonts(cd.as_ref()) {
+    if crate::cd::has_game(cd.as_ref()) {
         Ok(())
     } else {
-        Err(format!("no {} on it", engine::assets::FONT_DIR))
+        Err("no WWGADGET.DLL on it".into())
     }
 }
 

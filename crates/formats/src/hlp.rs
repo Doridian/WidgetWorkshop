@@ -473,15 +473,20 @@ pub enum Picture {
         width: i16,
         height: i16,
     },
+    /// A baggage bitmap shown as it is (an OS/2 book's picture,
+    /// [`crate::inf::InfFile::to_help`]).
+    Baggage(String),
 }
 
 impl Picture {
-    /// The baggage file a `D2H_256Color` window shows.
+    /// The baggage file a `D2H_256Color` window (or a [`Picture::Baggage`])
+    /// shows.
     #[must_use]
     pub fn baggage_bitmap(&self) -> Option<&str> {
         match self {
             Picture::Window { class, data, .. } if class.eq_ignore_ascii_case("D2H_256Color") => Some(data),
             Picture::Window { .. } => None,
+            Picture::Baggage(name) => Some(name),
         }
     }
 }
@@ -504,7 +509,7 @@ pub enum Inline {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Paragraph {
     pub format: ParaFormat,
     pub items: Vec<Inline>,

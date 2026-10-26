@@ -1,7 +1,10 @@
 //! Where the game's data comes from. The original keeps nearly all of it
 //! in the resources of four modules ([`Module`]); the port reads them from
 //! the CD (an ISO image or its files, through a [`Source`]) and lets a
-//! directory of loose files override or add any of them:
+//! directory of loose files override or add any of them. The Win95 build's
+//! modules are PE files; the OS/2 CD's are LX files, whose dialogs, menu,
+//! strings and pointers are turned into the Win95 build's on loading
+//! (`formats::os2`, docs/os2.md), so the rest sees one kind:
 //!
 //! ```text
 //! <overrides>/<MODULE>/<type>/<id>.<ext>
@@ -12,13 +15,13 @@
 //! knots, 1020 texts, ...); the extension doesn't matter (`.hr`, `.wav`,
 //! `.txt`, `.bin`). `widget --export DIR` writes every resource in this
 //! layout, a starting point for new art. Fonts are `fonts/*.FON`, and a
-//! `WIDGET.PZL` or `WIDGET.HLP` at the top replaces the CD's puzzles or
-//! help.
+//! `WIDGET.PZL` or `WIDGET.HLP` (or `WIDGET.INF`) at the top replaces the
+//! CD's puzzles or help.
 
 use std::collections::BTreeMap;
 use std::fmt;
 
-use formats::{fnt, pe};
+use formats::{fnt, lx, os2, pe, pzl};
 
 /// A tree of files: the CD (an image or a folder), or a folder of
 /// overrides. Paths use `/` and match without regard to case.
@@ -83,7 +86,8 @@ pub mod rt {
 }
 
 /// Where the game's folder is on a CD or in a folder, most likely first:
-/// the Win95 build, the Windows 3.1 one, or the folder itself.
+/// the Win95 build, the Windows 3.1 one, the OS/2 CD's, or the folder
+/// itself.
 pub const GAME_DIRS: [&str; 4] = ["WIN95/WIDGET", "WIN31/WIDGET", "WIDGET", ""];
 /// The puzzle file, next to `WIDGET.EXE` (`0x42d3fc`), or at the top of
 /// the overrides.
@@ -91,16 +95,56 @@ pub const PUZZLE_FILE: &str = "WIDGET.PZL";
 /// The help file, next to `WIDGET.EXE` with its base name (`0x4333f5`),
 /// or at the top of the overrides.
 pub const HELP_FILE: &str = "WIDGET.HLP";
+/// The OS/2 Warp CD's help instead: an IPF book (`formats::inf`), read
+/// where there's no [`HELP_FILE`]. The viewer tells them apart by content.
+pub const INF_FILE: &str = "WIDGET.INF";
 /// The stand-alone widgets' runtime, beside the game (`0x4165a7`).
 pub const RUNTIME_FILE: &str = "WIDGET.SLF";
+/// Where the sample widgets are, in the game's folder: the Win95 CD's,
+/// the OS/2 CD's.
+pub const SAMPLE_DIRS: [&str; 2] = ["FUNWIDGE", "WIDGETS"];
 /// The Windows 3.1 bitmap fonts the CD carries for its own setup.
 pub const FONT_DIR: &str = "WIN31/SVGA";
+
+/// The port's own fonts, behind the CD's: Wine's free MS Sans Serif and
+/// Small Fonts (LGPL 2.1 or later, the same metrics as Windows'), and
+/// "Widget Sans" (`tools/make-sans-font.py`, Liberation Sans under the SIL
+/// OFL 1.1) for the gadgets' "Helvetica". crates/engine/fonts/README.md.
+const BUNDLED_FON: [&[u8]; 2] = [include_bytes!("../fonts/SSERIFE.FON"), include_bytes!("../fonts/SMALLE.FON")];
+const BUNDLED_FNT: [&[u8]; 3] = [
+    include_bytes!("../fonts/WSANS16.FNT"),
+    include_bytes!("../fonts/WSANS16B.FNT"),
+    include_bytes!("../fonts/WSANS24.FNT"),
+];
+
+/// The port's own fonts ([`BUNDLED_FON`], [`BUNDLED_FNT`]).
+#[must_use]
+pub fn bundled_fonts() -> Vec<fnt::Font> {
+    let mut fonts: Vec<fnt::Font> = BUNDLED_FON
+        .iter()
+        .flat_map(|b| fnt::Font::parse_fon(b).unwrap_or_default())
+        .collect();
+    fonts.extend(BUNDLED_FNT.iter().filter_map(|b| fnt::Font::parse(b).ok()));
+    fonts
+}
+
+/// The first of [`GAME_DIRS`] on `cd` that holds `WWGADGET.DLL`.
+#[must_use]
+pub fn game_dir(cd: &dyn Source) -> Option<&'static str> {
+    GAME_DIRS.into_iter().find(|d| {
+        cd.list(d)
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(Module::Gadget.file()))
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
     /// None of [`GAME_DIRS`] holds `WWGADGET.DLL`.
     NoGame,
     Module(&'static str, pe::Error),
+    /// An OS/2 module that doesn't parse.
+    Os2Module(&'static str, lx::Error),
 }
 
 impl fmt::Display for Error {
@@ -116,26 +160,41 @@ impl fmt::Display for Error {
                     .join(", ")
             ),
             Error::Module(file, e) => write!(f, "{file}: {e}"),
+            Error::Os2Module(file, e) => write!(f, "{file}: {e}"),
         }
     }
 }
 
 impl std::error::Error for Error {}
 
+/// The resources of module `m` from its file `bytes`: a PE file's as they
+/// are, an LX file's (the OS/2 build) as the Win95 build's would be.
+fn parse_module(m: Module, bytes: &[u8]) -> Result<pe::Resources, Error> {
+    if lx::is_lx(bytes) {
+        let r = lx::Resources::parse(bytes).map_err(|e| Error::Os2Module(m.file(), e))?;
+        Ok(os2::to_win(&r))
+    } else {
+        pe::Resources::parse(bytes).map_err(|e| Error::Module(m.file(), e))
+    }
+}
+
 /// The game's resources: the overrides' on top of the original modules'.
 #[derive(Default)]
 pub struct Assets {
     modules: BTreeMap<Module, pe::Resources>,
     overrides: BTreeMap<(Module, u32, u32), Vec<u8>>,
-    /// The bitmap fonts found, by face.
+    /// The bitmap fonts: the overrides', the CD's, then
+    /// [`bundled_fonts`].
     pub fonts: Vec<fnt::Font>,
-    /// The sample widgets (`FUNWIDGE/*.WGT`) on the CD: name and bytes.
+    /// The sample widgets on the CD (`FUNWIDGE/*.WGT`, the OS/2 CD's
+    /// `WIDGETS/*.WGT`): name and bytes.
     pub samples: Vec<(String, Vec<u8>)>,
     /// The puzzle file (`WIDGET.PZL`, `formats::pzl`), if found: the
     /// overrides', else the CD's.
     pub puzzles: Option<Vec<u8>>,
-    /// The help file (`WIDGET.HLP`, `formats::hlp`), if found: the
-    /// overrides', else the CD's. Parsed when Help opens.
+    /// The help file (`WIDGET.HLP`, `formats::hlp`, or the OS/2 CD's
+    /// `WIDGET.INF`, `formats::inf`), if found: the overrides', else the
+    /// CD's. Parsed when Help opens.
     pub help: Option<Vec<u8>>,
     /// The stand-alone widgets' runtime (`WIDGET.SLF`, packed), if found.
     pub runtime: Option<Vec<u8>>,
@@ -153,7 +212,8 @@ fn join(dir: &str, name: &str) -> String {
 
 impl Assets {
     /// Reads the original modules from `cd` (where [`GAME_DIRS`] finds
-    /// them), its fonts and samples, then the files of `overrides`.
+    /// them), its fonts and samples, then the files of `overrides`; the
+    /// port's own fonts last.
     ///
     /// # Errors
     /// If the game's folder isn't on `cd`, or a module there doesn't parse.
@@ -168,30 +228,37 @@ impl Assets {
         if a.modules.is_empty() && a.overrides.is_empty() {
             return Err(Error::NoGame);
         }
+        // After the CD's and the overrides', which win a tie in `font`.
+        a.fonts.extend(bundled_fonts());
         Ok(a)
     }
 
     fn load_cd(&mut self, cd: &dyn Source) -> Result<(), Error> {
-        let dir = GAME_DIRS
-            .iter()
-            .find(|d| cd.read(&join(d, Module::Gadget.file())).is_some())
-            .ok_or(Error::NoGame)?;
+        let dir = game_dir(cd).ok_or(Error::NoGame)?;
+        let mut os2 = false;
         for m in Module::ALL {
             if let Some(bytes) = cd.read(&join(dir, m.file())) {
-                let res = pe::Resources::parse(&bytes).map_err(|e| Error::Module(m.file(), e))?;
-                self.modules.insert(m, res);
+                os2 |= lx::is_lx(&bytes);
+                self.modules.insert(m, parse_module(m, &bytes)?);
             }
         }
         for fon in ["SSERIFE.FON", "SMALLE.FON"] {
-            for d in [FONT_DIR, *dir, ""] {
+            for d in [FONT_DIR, dir, ""] {
                 if let Some(b) = cd.read(&join(d, fon)) {
                     self.fonts.extend(fnt::Font::parse_fon(&b).unwrap_or_default());
                     break;
                 }
             }
         }
-        let samples = join(dir, "FUNWIDGE");
-        let mut names = cd.list(&samples);
+        let (samples, mut names) = SAMPLE_DIRS
+            .iter()
+            .map(|s| {
+                let s = join(dir, s);
+                let names = cd.list(&s);
+                (s, names)
+            })
+            .find(|(_, names)| !names.is_empty())
+            .unwrap_or_default();
         names.sort();
         for name in names {
             if name.to_ascii_uppercase().ends_with(".WGT")
@@ -201,7 +268,14 @@ impl Assets {
             }
         }
         self.puzzles = cd.read(&join(dir, PUZZLE_FILE));
-        self.help = cd.read(&join(dir, HELP_FILE));
+        // The OS/2 CD's file was shipped with every puzzle marked solved.
+        if os2
+            && let Some(p) = &mut self.puzzles
+            && let Ok(old) = pzl::Puzzles::parse(p)
+        {
+            let _ = pzl::write_done(p, &vec![false; old.done.len()]);
+        }
+        self.help = cd.read(&join(dir, HELP_FILE)).or_else(|| cd.read(&join(dir, INF_FILE)));
         self.runtime = cd.read(&join(dir, RUNTIME_FILE));
         Ok(())
     }
@@ -210,7 +284,7 @@ impl Assets {
         if let Some(b) = o.read(PUZZLE_FILE) {
             self.puzzles = Some(b);
         }
-        if let Some(b) = o.read(HELP_FILE) {
+        if let Some(b) = o.read(HELP_FILE).or_else(|| o.read(INF_FILE)) {
             self.help = Some(b);
         }
         for m in Module::ALL {
@@ -382,5 +456,62 @@ impl Source for Dir {
                     .collect()
             })
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bundled_fonts_have_the_games_faces() {
+        let a = Assets {
+            fonts: bundled_fonts(),
+            ..Assets::default()
+        };
+        for (face, height) in [("MS Sans Serif", 13), ("MS Sans Serif", 16), ("Small Fonts", 11), ("Widget Sans", 24)] {
+            let f = a.font(face, height, false).unwrap();
+            assert_eq!((f.face.as_str(), f.height), (face, height));
+        }
+        let bold = a.font("Widget Sans", 16, true).unwrap();
+        assert_eq!((bold.height, bold.weight), (16, 700));
+        // Wine's MS Sans Serif has Windows' widths.
+        assert_eq!(a.font("MS Sans Serif", 13, false).unwrap().width(b"Cancel"), 33);
+    }
+
+    /// A CD image in memory, through `formats::iso`.
+    struct Iso(Vec<u8>);
+
+    impl Source for Iso {
+        fn read(&self, path: &str) -> Option<Vec<u8>> {
+            formats::iso::read_file(&self.0, path)
+        }
+
+        fn list(&self, path: &str) -> Vec<String> {
+            self.read(path)
+                .and_then(|d| formats::iso::records(&d).ok())
+                .map(|r| r.into_iter().map(|r| r.name).collect())
+                .unwrap_or_default()
+        }
+    }
+
+    /// The OS/2 Warp CD, from the image `WIDGET_OS2_ISO` names, else
+    /// `WW1_01A.ISO` at the top of the repository (skipped without it):
+    /// it loads, and its puzzle file comes up with nothing solved.
+    #[test]
+    fn os2_cd_loads_with_no_puzzle_solved() {
+        let iso = std::env::var_os("WIDGET_OS2_ISO").map_or_else(
+            || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../WW1_01A.ISO"),
+            std::path::PathBuf::from,
+        );
+        let Ok(image) = std::fs::read(iso) else {
+            eprintln!("no OS/2 CD: skipped");
+            return;
+        };
+        let a = Assets::load(Some(&Iso(image)), None).unwrap();
+        assert_eq!(a.samples.len(), 10);
+        let p = pzl::Puzzles::parse(a.puzzles.as_ref().unwrap()).unwrap();
+        assert_eq!(p.done.len(), 25);
+        assert!(p.done.iter().all(|d| !d));
     }
 }

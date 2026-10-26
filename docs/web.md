@@ -48,7 +48,7 @@ python3 -m http.server -d web 8000    # then open http://localhost:8000/
 ```
 
 On the first start the page asks for the game's CD image: the Mac/PC CD's
-`.iso` (the one with `WIN31/SVGA`, where the fonts are). **Start** reads
+`.iso` or the OS/2 CD's `WW1_01A.ISO`. **Start** reads
 the image into memory and opens the editor. On later starts the page
 shows the image it kept and **Start** goes straight on; picking another
 file replaces it. The page never fetches or sends game data: the image

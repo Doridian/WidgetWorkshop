@@ -148,6 +148,31 @@ pub fn records(data: &[u8]) -> Result<Vec<Record>, Error> {
     Ok(out)
 }
 
+/// File `path` (`/`-separated, matched without regard to case) of a
+/// whole image in memory, for tools and tests.
+#[must_use]
+pub fn read_file(image: &[u8], path: &str) -> Option<Vec<u8>> {
+    let layout = Layout::of_size(u64::try_from(image.len()).ok()?);
+    let extent_bytes = |e: Extent| -> Option<Vec<u8>> {
+        let mut out = Vec::with_capacity(usize::try_from(e.size).ok()?);
+        let mut lba = u64::from(e.lba);
+        while out.len() < usize::try_from(e.size).ok()? {
+            let at = usize::try_from(layout.offset(lba)).ok()?;
+            let n = (usize::try_from(e.size).ok()? - out.len()).min(2048);
+            out.extend_from_slice(image.get(at..at + n)?);
+            lba += 1;
+        }
+        Some(out)
+    };
+    let pvd_at = usize::try_from(layout.offset(PVD_SECTOR)).ok()?;
+    let mut extent = root(image.get(pvd_at..pvd_at + 2048)?).ok()?;
+    for part in path.split('/').filter(|p| !p.is_empty()) {
+        let found = records(&extent_bytes(extent)?).ok()?;
+        extent = found.iter().find(|r| r.name.eq_ignore_ascii_case(part))?.extent;
+    }
+    extent_bytes(extent)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

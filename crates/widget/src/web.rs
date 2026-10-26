@@ -87,14 +87,11 @@ async fn cd_image() -> Result<Box<dyn engine::assets::Source>, String> {
             Ok(cd) => {
                 let volume = cd.volume.clone();
                 let cd = crate::cd::image(cd);
-                if crate::cd::has_fonts(cd.as_ref()) {
+                if crate::cd::has_game(cd.as_ref()) {
                     platform::web::log(&format!("the CD image: {volume}"));
                     return Ok(cd);
                 }
-                format!(
-                    "That CD image isn't Widget Workshop's Mac/PC CD: it has no {}.",
-                    engine::assets::FONT_DIR
-                )
+                "That CD image isn't Widget Workshop's: it has no WWGADGET.DLL.".to_owned()
             }
             Err(e) => format!("That file doesn't open as a CD image: {e}."),
         };

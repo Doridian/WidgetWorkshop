@@ -1024,10 +1024,10 @@ impl Editor {
     }
 
     /// Help ▸ Contents (`0x4333f5`): `WinHelp(HELP_CONTENTS)` on
-    /// `WIDGET.HLP`, which opens the help window on the contents topic (or
-    /// brings it back there); while the file isn't there, "Can't find help
-    /// file" with Retry and Cancel. A file that doesn't parse gets the same
-    /// message.
+    /// `WIDGET.HLP` (or the OS/2 CD's `WIDGET.INF`), which opens the help
+    /// window on the contents topic (or brings it back there); while the
+    /// file isn't there, "Can't find help file" with Retry and Cancel. A
+    /// file that doesn't parse gets the same message.
     ///
     /// The window lives beside the game as `WinHelp`'s does: the game runs
     /// on, a click on either gives it the keyboard. It stays on top (there's
@@ -1037,8 +1037,8 @@ impl Editor {
             h.contents();
             return;
         }
-        match self.assets.help.as_deref().map(formats::hlp::HelpFile::parse) {
-            Some(Ok(file)) => {
+        match self.assets.help.as_deref().and_then(help::load) {
+            Some(file) => {
                 self.help = Some(help::Help::new(&self.assets, file, self.worksheet(), self.help_at));
             }
             _ => self.message(help::MISSING, &[Answer::Retry, Answer::Cancel], Then::HelpMissing),

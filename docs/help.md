@@ -3,7 +3,9 @@
 What the original does with on-line help, what the help file contains,
 and a plan for an in-game viewer the engine draws in the Win95 style it
 uses for the rest of the UI. The parser is `crates/formats/src/hlp.rs`
-(`formats::hlp::HelpFile`).
+(`formats::hlp::HelpFile`). The OS/2 Warp CD's help is an IPF book
+instead, `WIDGET.INF` (§5, `crates/formats/src/inf.rs`), which the same
+viewer shows.
 
 ---
 
@@ -172,7 +174,9 @@ totals about 13.5 KB, roughly 2,200 words, in about 120 paragraphs.
 The goal is to look like WinHelp 95 (`WINHLP32`) showing a WinHelp 3.1
 file without a `.CNT`, drawn by the engine with its Win95 chrome and the
 CD's bitmap fonts (`WIN31/SVGA/SSERIFE.FON`: MS Sans Serif 8, 10, 12, 14,
-18, 24 pt; there's no Arial).
+18, 24 pt; there's no Arial). Without them, as on the OS/2 CD, it uses the
+port's bundled fonts (`crates/engine/fonts`: Wine's MS Sans Serif and
+Small Fonts, and Widget Sans, rendered from Liberation Sans).
 
 ### 3.1 Loading
 
@@ -275,3 +279,123 @@ regions, Index dialog). `formats::hlp` already resolves everything else.
 - Whether the port should copy the original's habit of launching help
   as a separate, independently living window (closed on app exit,
   `HELP_QUIT`), or make it a child panel of the game window.
+
+---
+
+## 5. The OS/2 Warp CD: `WIDGET.INF`
+
+The small OS/2 Warp CD (`WW1_01A.ISO`) has no WinHelp file. Its help is
+`WIDGET/WIDGET.INF`, 42,541 bytes, an IPF book ("Widget Workshop for OS/2
+Warp", flags 0x01 = `.INF`) compiled by IPFC and shown by `VIEW.EXE`. The
+text is the WinHelp file's, converted. The parser is
+`crates/formats/src/inf.rs` (`formats::inf::InfFile`); `InfFile::to_help`
+turns it into `formats::hlp`'s topics, and `editor::help::load` picks the
+reader by the first bytes (`HSP` or `?_\3\0`). The assets read
+`WIDGET.HLP`, else `WIDGET.INF`, from the game folder or the top of the
+overrides. `cargo run -p formats --example dump_inf WW1_01A.ISO [DIR]`
+prints the book (and writes its pictures to `DIR`).
+
+### 5.1 Contents
+
+| what | count |
+|---|---|
+| panels (TOC entries) | 15: 11 at level 1, the four menus at level 2 under "The Menus" |
+| slots | 15 (Troubleshooting takes two; "Welcome to Widget Workshop" and "The Menus" have none or an empty one) |
+| dictionary | 645 words |
+| fonts | 3: System Proportional 0×0 (the default), Courier 18×11 (unused), Helv 16×10 (every panel starts with it) |
+| index, resource ids, names | none |
+| pictures | 6, all LZW: the screen (552×373), the Control Box (53×95), the Tooltray (448×96), and the Pointer, Cut and Move buttons (61×37, 33×37, 31×37) in the Tooltray panel's lines (`runin`) |
+
+The pictures are the WinHelp file's, recaptured at the OS/2 window's
+size, 8-bit with the game's palette. There are no links at all: the book
+relies on `VIEW`'s contents window. The escapes used are style (bold,
+italic), left margin, font, monospace start and end, and pictures.
+
+### 5.2 Format notes
+
+All numbers little-endian. Offsets are file offsets unless noted.
+
+- **Header** (155 bytes): `HSP` and a flags byte (0x01 book, 0x10 help
+  library); at 8 the TOC count; 10/14 the TOC strings' start and size;
+  18 the TOC offset array; 22/24 resource-id count and table; 28/30 name
+  count and table; 34/36/40 index count, start and size; 54/58 full-text
+  search table; 62/64 slot count and offset array; 68/72/74 dictionary
+  size, count and start; 78 the image start; 82 the largest local word
+  number (0xF5); 83/87 the NLS table; 91 the extended header; 107 the
+  title (48 bytes).
+- **Dictionary**: each word a length byte (counting itself) and the
+  characters. Punctuation marks are words of their own.
+- **TOC entry**: length, flags (0x80 has children, 0x40 hidden, 0x20
+  extended, low nibble the level), slot count; if extended two flag bytes
+  and the window data they select (`NewView`'s reading: w1 0x01 position
+  5 bytes, 0x02 size 5, 0x08 controls 2, 0x40 2; w2 0x04 group 2); the
+  slot numbers; the title fills the rest. `WIDGET.INF` has no extended
+  entries.
+- **Slot**: a zero byte, the local dictionary's offset (u32), its size
+  (u8), the text size (u16), the text. The local dictionary is u16 global
+  word numbers. A text byte below its size is a word; 0xFA ends a
+  paragraph, 0xFB centres, 0xFC flips spacing, 0xFD breaks the line, 0xFE
+  is a space, 0xFF starts an escape: length (counting itself and the
+  code), code, data.
+- **Spacing**: on at the start of a panel; a word is followed by a space
+  while it's on. IPFC brackets punctuation with 0xFC. Paragraph ends and
+  line breaks turn it back on, except in monospaced text (escape 0x0B),
+  which turns it off until 0x0C.
+- **Escapes** (✓ = in `WIDGET.INF`): 0x02 ✓ left margin (character
+  widths; text continues there if the line hasn't reached it: tables and
+  list indents); 0x03 right margin; 0x04 ✓ style (1 italic, 2 bold, 3 bold
+  italic, 5 underlined, 6 underlined italic, 7 underlined bold); 0x05
+  link (u16 panel), 0x07 footnote link, 0x08 link end; 0x0B/0x0C ✓
+  monospace; 0x0D colour (1 blue, 2 red, 3 pink); 0x0E ✓ picture (flags:
+  0x01 left, 0x02 right, 0x04 centre, 0x08 fit, 0x10 in the line; u32
+  offset from the image start); 0x11 margin on a new line; 0x12 margin or
+  a new line; 0x19 ✓ font (index into the extended header's table);
+  0x1A/0x1B `:lines.`; 0x1C margin here. Only the ✓ ones were checked
+  against a file; the rest follow the inf02a.doc notes and `NewView`.
+- **Bullets**: a `:ul.` item's bullet is the word `\x07` (code page 437's
+  `•`), at the list margin, with the text at the next margin.
+- **Extended header** (64 bytes): font count (u16) and table offset (u32)
+  first; at 40/44 the control-button area (8 bytes here). A font entry is
+  39 bytes: a 33-byte face name, height, width, code page (437). IPF's
+  `size=HxW` is in points, so the body text is 16-point Helv.
+- **Pictures**: OS/2's `bM` file header (14 bytes, the offset to the bits
+  at 10), a 1.x info header (12 bytes: width, height, planes, bits as
+  u16s), the palette as B, G, R triples, then: the bits' total size (u32),
+  the size a block unpacks to (u16; whole rows, 64,584 = 117 rows of the
+  screenshot), and the blocks: length (u16, counting the type), type (0
+  plain, 2 LZW), data. Rows bottom-up, 4-byte aligned. The LZW is TIFF's:
+  codes MSB first, 9 bits growing to 12 one code early, 256 clears, 257
+  ends. All six pictures decode to their full size.
+
+### 5.3 In the viewer
+
+`InfFile::to_help` builds the same `HelpFile` the viewer draws:
+
+- Topic 0 is a made-up **Contents** page (what `VIEW` opens with): the
+  shown panels as green jumps, indented by level. Panel `i` is topic
+  `i + 1`; hash `i` leads there, so a link to panel `i` is `Jump(i)`.
+- Each panel's title is its heading in the non-scrolling region
+  (14-point bold; `VIEW` shows it in the caption instead). "The Menus",
+  with no text of its own, lists its four menus as links.
+- `<<`/`>>` step through the shown panels in contents order (`VIEW`'s
+  Previous and Next). The **Index** lists the book's index, or the panel
+  titles when it has none (this one).
+- Paragraphs (0xFA) get a blank line above. A margin becomes the
+  paragraph's indent; a margin raised mid-line on its first line becomes a
+  hanging indent and a tab (list items, the two-column list in "Fun with
+  Science"), later in the paragraph a tab stop. The bullet is drawn as the
+  Symbol font's 0xB7.
+- Styles become fonts (bold, italic, underline; the colours as dark blue,
+  dark red and magenta). The body's 16-point Helv comes out as MS Sans
+  Serif 14.
+- The notes are framed by monospaced lines of 128 `─` (0xC4), which would
+  run far past the window; each such line becomes a 1-pixel rule across
+  the paragraph's width, as the WinHelp file's borders are.
+- Pictures become BMP baggage (`bitmapNNNNNNNN.bmp`, after the offset)
+  shown by `Picture::Baggage`: on their own line unless `runin`.
+
+Not read: the full-text search table, the NLS table, the global names and
+child-page tables of the extended header, the extended TOC entries'
+window data (skipped), links that open windows of their own (their extra
+data), `:hide.`, and colour escapes 0x13/0x14. Pictures of 24 bits and
+the RLE block type aren't decoded.

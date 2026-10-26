@@ -25,10 +25,20 @@ need your own copy of the game's CD.
 
 ## Getting the game
 
-The port reads the **Mac/PC CD** (volume `WIDGETS`, with the fonts in
-`WIN31/SVGA`), as an `.iso` or as a folder with its files. The Internet
+The port reads the **Mac/PC CD** (volume `WIDGETS`), as an `.iso` or as
+a folder with its files. The Internet
 Archive has it as a zip of the `.iso`:
 [widget-workshop-a-mad-scientists-laboratory-1996-maxis-mac-pc](https://archive.org/details/widget-workshop-a-mad-scientists-laboratory-1996-maxis-mac-pc).
+
+It also reads the much smaller **OS/2 Warp CD** (`WW1_01A.ISO`, game folder
+`WIDGET/`): its modules are OS/2 executables whose dialogs, menu, strings
+and pointers the port turns into the Win95 build's
+([docs/os2.md](docs/os2.md)).
+
+The OS/2 CD has no Windows fonts, so the port bundles free stand-ins
+(`crates/engine/fonts`): Wine's MS Sans Serif and Small Fonts, and Widget
+Sans, rendered from Liberation Sans, for the gadgets' Arial. When the
+Mac/PC CD's own fonts (`WIN31/SVGA`) are there, they win.
 
 ## Packages
 
@@ -81,6 +91,7 @@ The browser build: `tools/build-web.sh`, [docs/web.md](docs/web.md).
 - [docs/dialogs.md](docs/dialogs.md): the parts' settings dialogs
 - [docs/puzzles.md](docs/puzzles.md): puzzles
 - [docs/help.md](docs/help.md): `WIDGET.HLP` and the Help menu
+- [docs/os2.md](docs/os2.md): the OS/2 Warp CD and how its modules differ
 - [docs/gadgets/logic.md](docs/gadgets/logic.md): the logic and number parts
 - [docs/gadgets/science.md](docs/gadgets/science.md): the science lab parts
 - [docs/gadgets/sound-time.md](docs/gadgets/sound-time.md): time and sound parts

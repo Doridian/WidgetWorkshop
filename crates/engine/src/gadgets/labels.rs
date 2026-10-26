@@ -30,9 +30,9 @@ pub enum GadgetFont {
 
 /// "Helvetica" isn't a Windows font: GDI substitutes Arial, which is
 /// TrueType. The port draws bitmap fonts only, so it takes the first of
-/// these it has (an override can add one; the game's own fonts have MS
-/// Sans Serif).
-const FACES: [&str; 3] = ["Helvetica", "Arial", "MS Sans Serif"];
+/// these it has (an override can add one; the port's own "Widget Sans" is
+/// Liberation Sans, with Arial's metrics, drawn at these sizes).
+const FACES: [&str; 4] = ["Helvetica", "Arial", "Widget Sans", "MS Sans Serif"];
 
 /// The font for `f`, and whether its bold must be made up (as GDI does for
 /// a raster font: each glyph drawn twice, a pixel apart, one pixel wider).

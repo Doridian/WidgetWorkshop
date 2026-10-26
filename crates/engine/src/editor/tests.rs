@@ -694,6 +694,53 @@ fn help_text_wraps_in_the_pane() {
     e.draw();
 }
 
+/// The OS/2 Warp CD's `WIDGET.INF` in the help window, from the image
+/// `WIDGET_OS2_ISO` names, else `WW1_01A.ISO` at the top of the repository
+/// (skipped without it or `orig`).
+#[test]
+fn help_shows_the_os2_book() {
+    let iso = std::env::var_os("WIDGET_OS2_ISO").map_or_else(
+        || std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../WW1_01A.ISO"),
+        std::path::PathBuf::from,
+    );
+    let Some(inf) = std::fs::read(iso)
+        .ok()
+        .and_then(|i| formats::iso::read_file(&i, "WIDGET/WIDGET.INF"))
+    else {
+        eprintln!("no OS/2 CD: skipped");
+        return;
+    };
+    let Some(mut e) = editor() else { return };
+    e.assets.help = Some(inf);
+    e.command(cmd::CONTENTS);
+    assert_eq!(help_title(&e).as_deref(), Some("Contents"));
+    assert_eq!(e.help.as_ref().unwrap().title(), "Widget Workshop for OS/2 Warp");
+    e.draw();
+    // Every panel in the contents.
+    assert_eq!(e.help.as_ref().unwrap().hotspots(&e.assets).len(), 15);
+    click_hotspot(&mut e, "The Tooltray");
+    assert_eq!(help_title(&e).as_deref(), Some("The Tooltray"));
+    e.draw();
+    // `>>` goes on in contents order; "The Menus" lists its four.
+    click_help_button(&mut e, help::B_NEXT);
+    assert_eq!(help_title(&e).as_deref(), Some("The Menus"));
+    assert_eq!(e.help.as_ref().unwrap().hotspots(&e.assets).len(), 4);
+    click_hotspot(&mut e, "Edit Menu");
+    assert_eq!(help_title(&e).as_deref(), Some("Edit Menu"));
+    click_help_button(&mut e, help::B_BACK);
+    assert_eq!(help_title(&e).as_deref(), Some("The Menus"));
+    // The Index lists the panels.
+    click_help_button(&mut e, help::B_INDEX);
+    for k in *b"WIDGET T" {
+        e.key_down(u16::from(k));
+    }
+    e.key_down(VK_RETURN);
+    assert_eq!(help_title(&e).as_deref(), Some("Widget Troubleshooting"));
+    let (pane, ends) = e.help.as_ref().unwrap().pane_and_extents(&e.assets);
+    assert!(ends.iter().all(|&x| x <= pane - 8), "{pane}: {ends:?}");
+    e.draw();
+}
+
 /// The keypad's bounds are its body (frame 15), so its keys take clicks.
 #[test]
 fn keypad_takes_clicks() {

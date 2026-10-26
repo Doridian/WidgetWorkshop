@@ -255,8 +255,9 @@ impl App for Workshop {
 }
 
 /// The CD to read when none is given: of the `.iso`s here, the first with
-/// the fonts ([`engine::assets::FONT_DIR`]), else the first that opens,
-/// else `orig`.
+/// the original fonts ([`engine::assets::FONT_DIR`]: the Mac/PC CD, which
+/// has the help too), else the first with the game, else the first that
+/// opens, else `orig`.
 #[cfg(not(target_arch = "wasm32"))]
 fn default_cd() -> PathBuf {
     let mut isos: Vec<PathBuf> = std::fs::read_dir(".")
@@ -271,6 +272,7 @@ fn default_cd() -> PathBuf {
     opened
         .iter()
         .find(|(_, cd)| cd::has_fonts(cd.as_ref()))
+        .or_else(|| opened.iter().find(|(_, cd)| cd::has_game(cd.as_ref())))
         .or(opened.first())
         .map_or_else(|| PathBuf::from("orig"), |(p, _)| (*p).clone())
 }
@@ -329,15 +331,7 @@ fn main() {
 /// The game's resources from `cd` and `overrides`; the end if they don't
 /// load.
 fn load(cd_path: &std::path::Path, cd: Option<&dyn Source>, overrides: Option<&dyn Source>) -> Assets {
-    let assets = Assets::load(cd, overrides).unwrap_or_else(|e| fail(&format!("{}: {e}", cd_path.display())));
-    if assets.fonts.is_empty() {
-        eprintln!(
-            "{}: no fonts in {} (or the overrides' fonts folder); text won't be drawn",
-            cd_path.display(),
-            engine::assets::FONT_DIR
-        );
-    }
-    assets
+    Assets::load(cd, overrides).unwrap_or_else(|e| fail(&format!("{}: {e}", cd_path.display())))
 }
 
 /// Opens the editor on `assets` as `args` say: the widget, the sound,

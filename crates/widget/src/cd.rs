@@ -34,8 +34,14 @@ pub fn image(cd: platform::data::CdImage) -> Box<dyn Source> {
     Box::new(Image(cd))
 }
 
-/// Whether `cd` has the fonts ([`engine::assets::FONT_DIR`]): the
-/// Mac/PC CD, not just an install folder.
+/// Whether `cd` has the game ([`engine::assets::game_dir`]).
+pub fn has_game(cd: &dyn Source) -> bool {
+    engine::assets::game_dir(cd).is_some()
+}
+
+/// Whether `cd` has the original fonts ([`engine::assets::FONT_DIR`]):
+/// the Mac/PC CD.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn has_fonts(cd: &dyn Source) -> bool {
     !cd.list(engine::assets::FONT_DIR).is_empty()
 }
@@ -91,7 +97,12 @@ pub fn export(assets: &Assets, dir: &Path) -> io::Result<usize> {
     }
     if let Some(h) = &assets.help {
         std::fs::create_dir_all(dir)?;
-        std::fs::write(dir.join(engine::assets::HELP_FILE), h)?;
+        let name = if formats::inf::is_inf(h) {
+            engine::assets::INF_FILE
+        } else {
+            engine::assets::HELP_FILE
+        };
+        std::fs::write(dir.join(name), h)?;
         n += 1;
     }
     Ok(n)

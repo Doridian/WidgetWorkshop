@@ -7,6 +7,10 @@
 //! scrolling text, with the jump hotspots, the Back history and the Index
 //! (`WinHelp` 4's "Help Topics" dialog, Index tab).
 //!
+//! The OS/2 Warp CD's `WIDGET.INF` (an IPF book) shows in the same window:
+//! [`load`] tells the two apart by their first bytes and turns the book's
+//! panels into the same topics (`formats::inf::InfFile::to_help`).
+//!
 //! The text is laid out from `formats::hlp`'s paragraphs with the CD's
 //! MS Sans Serif bitmap fonts standing in for Arial: the nearest point
 //! size, bold over-struck one pixel to the right when there's no bold face,
@@ -34,6 +38,18 @@ use super::ui;
 /// (`0x4333f5`, through `0x45f99f` with `MB_RETRYCANCEL`).
 pub const MISSING: &str =
     "Can't find help file\nIt should be in the same folder as Widget Workshop and be named WIDGET.HLP";
+
+/// Reads a help file: `WIDGET.HLP` (`WinHelp`), or an OS/2 book
+/// (`WIDGET.INF`, by its `HSP` signature) as the same topics. `None` if
+/// it doesn't parse.
+#[must_use]
+pub fn load(data: &[u8]) -> Option<HelpFile> {
+    if formats::inf::is_inf(data) {
+        formats::inf::InfFile::parse(data).ok()?.to_help().ok()
+    } else {
+        HelpFile::parse(data).ok()
+    }
+}
 
 /// A sizing frame (`SM_CXFRAME`) and the caption (`SM_CYCAPTION` − 1).
 const FRAME: i32 = 4;
@@ -2118,6 +2134,15 @@ impl IndexDialog {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn load_tells_the_formats_apart() {
+        // Neither parses, but each goes to its own reader.
+        assert!(formats::inf::is_inf(b"HSP\x01"));
+        assert!(!formats::inf::is_inf(b"?_\x03\0"));
+        assert_eq!(load(b"HSP\x01"), None);
+        assert_eq!(load(b"?_\x03\0"), None);
+    }
 
     #[test]
     fn units_are_two_thirds_of_a_pixel() {
