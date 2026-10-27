@@ -552,6 +552,18 @@ impl FileDialog {
 
     // ---- input ---------------------------------------------------------
 
+    /// The window in frame coordinates.
+    pub(super) fn window(&self) -> IRect {
+        self.window
+    }
+
+    /// The window moved by its caption, its corner to `to`.
+    pub(super) fn move_to(&mut self, to: (i32, i32)) {
+        let (dx, dy) = (to.0 - self.window.x0, to.1 - self.window.y0);
+        self.window = self.window.offset(dx, dy);
+        self.client = self.client.offset(dx, dy);
+    }
+
     fn to_client(&self, p: (i32, i32)) -> (i32, i32) {
         (p.0 - self.client.x0, p.1 - self.client.y0)
     }

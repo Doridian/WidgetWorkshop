@@ -729,6 +729,18 @@ impl Dialog {
         g.behavior.settings_changed(&mut g.core);
     }
 
+    /// The window in frame coordinates.
+    pub(super) fn window(&self) -> IRect {
+        self.window
+    }
+
+    /// The window moved by its caption, its corner to `to`.
+    pub(super) fn move_to(&mut self, to: (i32, i32)) {
+        let (dx, dy) = (to.0 - self.window.x0, to.1 - self.window.y0);
+        self.window = self.window.offset(dx, dy);
+        self.client = self.client.offset(dx, dy);
+    }
+
     fn to_client(&self, p: (i32, i32)) -> (i32, i32) {
         (p.0 - self.client.x0, p.1 - self.client.y0)
     }
@@ -1227,12 +1239,37 @@ pub(super) fn close_box(window: IRect) -> IRect {
     IRect::sized(window.x1 - FRAME - 2 - 16, window.y0 + FRAME + 2, 16, 14)
 }
 
+/// The caption of a dialog window at `window` (frame coordinates).
+pub(super) fn caption(window: IRect) -> IRect {
+    IRect::new(
+        window.x0 + FRAME,
+        window.y0 + FRAME,
+        window.x1 - FRAME,
+        window.y0 + FRAME + CAPTION_H,
+    )
+}
+
+/// Whether `p` picks up the dialog window at `window` to move it: on its
+/// caption, off its close box.
+pub(super) fn on_caption(window: IRect, p: (i32, i32)) -> bool {
+    caption(window).contains(p.0, p.1) && !close_box(window).contains(p.0, p.1)
+}
+
+/// Where a window `w` wide whose corner is dragged to `to` goes: kept with
+/// some of its caption in `area`, so it can be picked up again.
+pub(super) fn keep_caption(to: (i32, i32), w: i32, area: IRect) -> (i32, i32) {
+    (
+        to.0.clamp(area.x0 - w + 40, area.x1 - 40),
+        to.1.clamp(area.y0, area.y1 - CAPTION_H - FRAME),
+    )
+}
+
 /// A dialog's window: the raised frame, the caption with `title` and the
 /// close box (held down if `close_pressed`).
 pub(super) fn draw_window(s: &mut Surface, font: &formats::fnt::Font, w: IRect, title: &str, close_pressed: bool) {
     s.fill(w, ui::FACE);
     ui::raised(s, w);
-    let cap = IRect::new(w.x0 + FRAME, w.y0 + FRAME, w.x1 - FRAME, w.y0 + FRAME + CAPTION_H);
+    let cap = caption(w);
     s.fill(cap, ui::NAVY);
     s.text(font, cap.x0 + 3, cap.y0 + 2, &crate::text::encode(title), ui::WHITE);
     let cb = close_box(w);

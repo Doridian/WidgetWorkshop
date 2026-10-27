@@ -1011,3 +1011,68 @@ fn the_settings_window_changes_the_scale_and_the_enhancements() {
     e.key_down(VK_ESCAPE);
     assert!(e.settings.is_none());
 }
+
+/// Drags by the caption (or move bar) at `from` and holds it at `to`,
+/// still down.
+fn hold(e: &mut Editor, from: (i32, i32), to: (i32, i32)) {
+    e.mouse_move(from.0, from.1);
+    e.mouse_down(from.0, from.1, Button::Left);
+    e.mouse_move(to.0, to.1);
+}
+
+#[test]
+fn boxes_and_dialogs_move_by_their_captions() {
+    let Some(mut e) = editor() else { return };
+    let g = add(&mut e, *b"TxLb", 100, 200);
+    e.open_settings(g);
+    let w = e.dialog.as_ref().unwrap().window();
+    let ok = e.dialog.as_ref().unwrap().centre_of(1).unwrap();
+    // The original's outline follows; the dialog moves when let go.
+    let from = (w.x0 + 20, w.y0 + 8);
+    hold(&mut e, from, (from.0 + 30, from.1 + 40));
+    assert_eq!(e.dialog.as_ref().unwrap().window(), w);
+    e.mouse_up(from.0 + 30, from.1 + 40, Button::Left);
+    e.update(600, (0, 0, 0));
+    assert_eq!(e.dialog.as_ref().unwrap().window(), w.offset(30, 40));
+    // Its controls came along.
+    assert_eq!(e.dialog.as_ref().unwrap().centre_of(1), Some((ok.0 + 30, ok.1 + 40)));
+    // Off the top, the caption stays on the screen.
+    drag(&mut e, (from.0 + 30, from.1 + 40), (from.0, -100));
+    assert_eq!(e.dialog.as_ref().unwrap().window().y0, 0);
+    e.key_down(VK_ESCAPE);
+    // With the enhancements, the window follows the pointer.
+    e.set_enhanced(true);
+    e.command(cmd::SETTINGS);
+    let w = e.settings.as_ref().unwrap().window();
+    let from = (w.x0 + 20, w.y0 + 8);
+    hold(&mut e, from, (from.0 - 50, from.1 + 10));
+    assert_eq!(e.settings.as_ref().unwrap().window(), w.offset(-50, 10));
+    e.mouse_up(from.0 - 50, from.1 + 10, Button::Left);
+    e.update(600, (0, 0, 0));
+    assert_eq!(e.settings.as_ref().unwrap().window(), w.offset(-50, 10));
+    e.key_down(VK_ESCAPE);
+    // A message box too, centred until moved.
+    e.message("Moved", &[Answer::Ok], Then::Nothing);
+    let area = e.surface.bounds();
+    let w = e.prompt.as_ref().unwrap().0.window(&e.assets, area);
+    drag(&mut e, (w.x0 + 10, w.y0 + 8), (w.x0 + 110, w.y0 + 8));
+    assert_eq!(e.prompt.as_ref().unwrap().0.window(&e.assets, area), w.offset(100, 0));
+}
+
+#[test]
+fn enhanced_toolbars_follow_the_pointer() {
+    let Some(mut e) = editor() else { return };
+    let at = e.main_bar.pos;
+    let from = (at.0 + 30, at.1 + 2 + menu::BAR_H);
+    hold(&mut e, from, (from.0 + 20, from.1 + 20));
+    assert_eq!(e.main_bar.pos, at);
+    e.mouse_up(from.0 + 20, from.1 + 20, Button::Left);
+    e.update(600, (0, 0, 0));
+    assert_eq!(e.main_bar.pos, (at.0 + 20, at.1 + 20));
+    e.set_enhanced(true);
+    let at = e.main_bar.pos;
+    let from = (at.0 + 30, at.1 + 2 + menu::BAR_H);
+    hold(&mut e, from, (from.0 + 20, from.1 + 20));
+    assert_eq!(e.main_bar.pos, (at.0 + 20, at.1 + 20));
+    e.mouse_up(from.0 + 20, from.1 + 20, Button::Left);
+}
