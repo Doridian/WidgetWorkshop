@@ -1285,7 +1285,7 @@ fn draw_balloon(s: &mut Surface, assets: &Assets, b: IRect, text: &str) {
     s.set_clip(old);
 }
 
-fn check_mark(s: &mut Surface, x: i32, y: i32) {
+pub(super) fn check_mark(s: &mut Surface, x: i32, y: i32) {
     const ROWS: [u8; 7] = [0x02, 0x06, 0x8e, 0xdc, 0xf8, 0x70, 0x20];
     for (dy, bits) in (0..).zip(ROWS) {
         for dx in 0..8 {

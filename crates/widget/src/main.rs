@@ -48,7 +48,7 @@ use web_time::Duration;
 use engine::assets::{Assets, Source};
 use engine::doc::Document;
 use engine::editor::{self, Editor};
-use platform::{App, Button, Cursor, CursorImage, Frame, Input, WindowOptions};
+use platform::{App, Button, Cursor, CursorImage, Frame, Input, UiScale, WindowOptions};
 
 use crate::sound::Sound;
 
@@ -196,6 +196,8 @@ struct Workshop {
     sound: Sound,
     palette: [[u8; 3]; 256],
     theme: platform::theme::SystemTheme,
+    /// Where the enhancements' switch is kept (`original=`).
+    settings_file: Option<PathBuf>,
 }
 
 impl App for Workshop {
@@ -209,6 +211,12 @@ impl App for Workshop {
             self.editor.open_link(&l);
         }
         self.editor.update(ms, sound::local_time());
+        if let Some(on) = self.editor.take_enhanced()
+            && let Some(path) = &self.settings_file
+            && let Err(e) = platform::settings::EnhanceSettings::save(path, Some(!on), &[], &[])
+        {
+            eprintln!("{}: {e}", path.display());
+        }
         let cmds = self.editor.take_sounds();
         self.sound.play(cmds);
         self.editor.draw();
@@ -282,6 +290,21 @@ impl App for Workshop {
 
     fn pasted(&mut self, text: String) {
         self.editor.paste_link(&text);
+    }
+
+    fn take_ui_scale(&mut self) -> Option<UiScale> {
+        self.editor.take_ui_scale().map(|s| match s {
+            editor::settings::Scale::Auto => UiScale::Auto,
+            editor::settings::Scale::Fixed(n) => UiScale::Fixed(n),
+        })
+    }
+
+    fn ui_scale_changed(&mut self, asked: UiScale, scale: f64) {
+        let asked = match asked {
+            UiScale::Auto => editor::settings::Scale::Auto,
+            UiScale::Fixed(n) => editor::settings::Scale::Fixed(n),
+        };
+        self.editor.set_ui_scale(asked, scale);
     }
 }
 
@@ -421,11 +444,18 @@ fn start(args: &Args, assets: Assets) -> Result<(), platform::Error> {
     };
     let theme = platform::theme::SystemTheme::new();
     editor.set_system_dark(theme.dark());
+    // The port's enhancements, unless the settings file says `original`.
+    let settings_file = args.window.settings_file.clone();
+    let original = settings_file
+        .as_deref()
+        .is_some_and(|p| platform::settings::EnhanceSettings::load(p).original);
+    editor.set_enhanced(!original);
     let app = Workshop {
         editor,
         sound: Sound::new(audio),
         palette,
         theme,
+        settings_file,
     };
     platform::run("Widget Workshop", args.window.clone(), app)
 }

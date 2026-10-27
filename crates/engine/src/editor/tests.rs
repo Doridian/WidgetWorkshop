@@ -909,7 +909,11 @@ fn widget_links_copy_and_open() {
     let url = copied.borrow()[0].clone();
     assert!(url.starts_with("https://example.org/widget.html#w="));
     assert_eq!(crate::link::decode(&url), Some((None, e.doc.save())));
-    assert!(prompt_text(&e).unwrap().starts_with("A link to the widget is on the clipboard"));
+    assert!(
+        prompt_text(&e)
+            .unwrap()
+            .starts_with("A link to the widget is on the clipboard")
+    );
     assert!(e.dirty);
     e.key_down(VK_RETURN);
     assert!(e.prompt.is_none());
@@ -933,11 +937,77 @@ fn widget_links_copy_and_open() {
     e.key_down(VK_RETURN);
     // No link on the clipboard.
     e.paste_link("hello");
-    assert_eq!(prompt_text(&e).as_deref(), Some("The clipboard holds no link to a widget."));
+    assert_eq!(
+        prompt_text(&e).as_deref(),
+        Some("The clipboard holds no link to a widget.")
+    );
     e.key_down(VK_RETURN);
     // Greyed while running.
     e.run();
     e.command(cmd::PASTE);
     e.command(cmd::COPY_LINK);
     assert_eq!((asked.get(), copied.borrow().len()), (1, 2));
+}
+
+#[test]
+fn the_enhanced_tray_shows_whole_folders() {
+    let Some(mut e) = editor() else { return };
+    e.set_enhanced(true);
+    e.update(16, (0, 0, 0));
+    // No page arrows; the tray is narrower, the displays' two pages
+    // under the tabs.
+    assert!(e.tray.bar.get(id::NEXT).is_none());
+    assert_eq!(e.tray.bar.size, (423, 51 + 2 * 40 + 2));
+    // The Number Parts: all five pages, one under the other, the window
+    // stretched after the slide.
+    let tab = e.tray.bar.get(id::TAB0 + 3).unwrap().rect;
+    let at = (
+        e.tray.bar.pos.0 + tab.x0 + 5,
+        e.tray.bar.pos.1 + tab.y0 + 5 + menu::BAR_H,
+    );
+    drag(&mut e, at, at);
+    e.update(400, (0, 0, 0));
+    assert_eq!(e.tray.bar.size, (423, 51 + 5 * 40 + 2));
+    let slots = e.tray.slots();
+    assert_eq!(slots.len(), 20);
+    // A part on the last row comes out of the tray.
+    let last = *slots.last().unwrap();
+    assert!(last.rect.y0 >= 160);
+    let from = (
+        e.tray.bar.pos.0 + tray::AREA.x0 + last.rect.x0 + 2,
+        e.tray.bar.pos.1 + tray::AREA.y0 + last.rect.y0 + 2 + menu::BAR_H,
+    );
+    drag(&mut e, from, (400, 500));
+    assert_eq!(e.doc.gadgets.len(), 1);
+    assert_eq!(tray::index_of(e.doc.gadgets[0].core.tag), Some(last.index));
+    // Under the tools there's no tray.
+    let (x, y) = e.tray.bar.pos;
+    assert!(e.tray.contains((x + 70, y + 150)));
+    assert!(!e.tray.contains((x + 20, y + 150)));
+    // Off again: the original's tray, the arrows back.
+    e.set_enhanced(false);
+    e.update(16, (0, 0, 0));
+    assert_eq!(e.tray.bar.size, (449, 93));
+    assert!(e.tray.bar.get(id::NEXT).is_some());
+    assert_eq!(e.tray.folder, 3);
+}
+
+#[test]
+fn the_settings_window_changes_the_scale_and_the_enhancements() {
+    let Some(mut e) = editor() else { return };
+    e.set_ui_scale(settings::Scale::Auto, 1.5);
+    e.command(cmd::SETTINGS);
+    assert!(e.settings.is_some());
+    // + starts from what Automatic gives.
+    e.key_down(VK_ADD);
+    assert_eq!(e.take_ui_scale(), Some(settings::Scale::Fixed(1.75)));
+    assert_eq!(e.take_ui_scale(), None);
+    e.set_ui_scale(settings::Scale::Fixed(1.75), 1.75);
+    e.key_down(u16::from(b'A'));
+    assert_eq!(e.take_ui_scale(), Some(settings::Scale::Auto));
+    e.key_down(u16::from(b'E'));
+    assert!(e.enhanced());
+    assert_eq!(e.take_enhanced(), Some(true));
+    e.key_down(VK_ESCAPE);
+    assert!(e.settings.is_none());
 }

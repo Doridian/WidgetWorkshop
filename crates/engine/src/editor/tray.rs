@@ -2,6 +2,15 @@
 //! Pointer/Cut/Move tools, the seven folder tabs, the page arrows and
 //! number, the help line and the slot area with the parts and their
 //! counts (`CWTrayToolbar`, `CWTrayFolder`, `CWTraySlot`).
+//!
+//! With the port's enhancements on ([`Tray::set_enhanced`]) the slot area
+//! shows the whole folder, its pages one under the other, and the page
+//! arrows and number are gone. The tools keep their height, so the tray
+//! hangs down below them; its frame is put together from the original's
+//! face. A folder switch rolls the area up into the gray and down into
+//! the new folder, as the original's slides do.
+
+use formats::hr::Image;
 
 use crate::assets::{Assets, Module};
 use crate::gadget::Tag;
@@ -54,6 +63,16 @@ const DIGITS: [IRect; 6] = [
 pub const SLIDE_MS: u64 = 180;
 /// Sheet of the gray stipple (frame 1) and the count digits (2..11).
 const COUNT_SHEET: u32 = 801;
+/// The enhanced tray: the face's columns up to the slot area's right edge
+/// and the last three (the window's own edge), 423 wide; the tools'
+/// height, and where the part under the slot area starts.
+const KEEP_W: i32 = 420;
+const EDGE: IRect = IRect::new(446, 0, 449, 93);
+const ENHANCED_W: i32 = KEEP_W + 3;
+const TOOLS_H: i32 = 93;
+const LOWER_X: i32 = 61;
+/// A row of the face the frame's sides are repeated from.
+const SIDE_ROW: i32 = 60;
 
 /// The tag of tray index `i` (`0x435c60`).
 #[must_use]
@@ -151,6 +170,17 @@ pub fn layout(list: &[i8], size: impl Fn(u8) -> (i32, i32)) -> Vec<Vec<Slot>> {
         .collect()
 }
 
+/// A folder's pages one under the other, as the enhanced tray shows
+/// them.
+fn folder_slots(pages: &[Vec<Slot>]) -> impl Iterator<Item = Slot> + '_ {
+    (0..).zip(pages).flat_map(|(row, page)| {
+        page.iter().map(move |s| Slot {
+            index: s.index,
+            rect: s.rect.offset(0, row * AREA_H),
+        })
+    })
+}
+
 /// What a page slide shows: a folder's page or the blank gray one
 /// (`CWGrayTraySlot`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -178,6 +208,64 @@ pub struct Tray {
     /// The slides under way: from, to, upwards; and when they started.
     slides: Vec<(Shown, Shown, bool)>,
     slide_start: u64,
+    /// The port's whole-folder tray.
+    pub enhanced: bool,
+}
+
+/// The tray's buttons (`0x431281`): the tools, the tabs and, unless
+/// `enhanced`, the page arrows.
+fn elements(enhanced: bool) -> Vec<Element> {
+    let mut elements = vec![
+        Element::new(
+            id::POINTER,
+            IRect::new(5, 18, 63, 52),
+            Kind::Radio(1),
+            IRect::new(450, 0, 508, 34),
+            None,
+        ),
+        Element::new(
+            id::CUT,
+            IRect::new(5, 54, 33, 88),
+            Kind::Radio(1),
+            IRect::new(450, 36, 478, 70),
+            None,
+        ),
+        Element::new(
+            id::MOVE,
+            IRect::new(35, 54, 63, 88),
+            Kind::Radio(1),
+            IRect::new(480, 36, 508, 70),
+            None,
+        ),
+    ];
+    for i in 0..7 {
+        let x = 68 + 50 * i;
+        elements.push(Element::new(
+            id::TAB0 + i,
+            IRect::new(x, 18, x + 49, 49),
+            Kind::Radio(2),
+            IRect::new(x, 53, x + 49, 84),
+            None,
+        ));
+    }
+    if enhanced {
+        return elements;
+    }
+    elements.push(Element::new(
+        id::PREV,
+        IRect::new(423, 27, 444, 43),
+        Kind::Push,
+        IRect::new(450, 74, 471, 90),
+        Some(IRect::new(471, 74, 492, 90)),
+    ));
+    elements.push(Element::new(
+        id::NEXT,
+        IRect::new(423, 65, 444, 81),
+        Kind::Push,
+        IRect::new(450, 90, 471, 106),
+        Some(IRect::new(471, 90, 492, 106)),
+    ));
+    elements
 }
 
 impl Tray {
@@ -185,53 +273,6 @@ impl Tray {
     /// the first folder and its first page.
     #[must_use]
     pub fn new(assets: &Assets, pictures: &Pictures) -> Tray {
-        let mut elements = vec![
-            Element::new(
-                id::POINTER,
-                IRect::new(5, 18, 63, 52),
-                Kind::Radio(1),
-                IRect::new(450, 0, 508, 34),
-                None,
-            ),
-            Element::new(
-                id::CUT,
-                IRect::new(5, 54, 33, 88),
-                Kind::Radio(1),
-                IRect::new(450, 36, 478, 70),
-                None,
-            ),
-            Element::new(
-                id::MOVE,
-                IRect::new(35, 54, 63, 88),
-                Kind::Radio(1),
-                IRect::new(480, 36, 508, 70),
-                None,
-            ),
-        ];
-        for i in 0..7 {
-            let x = 68 + 50 * i;
-            elements.push(Element::new(
-                id::TAB0 + i,
-                IRect::new(x, 18, x + 49, 49),
-                Kind::Radio(2),
-                IRect::new(x, 53, x + 49, 84),
-                None,
-            ));
-        }
-        elements.push(Element::new(
-            id::PREV,
-            IRect::new(423, 27, 444, 43),
-            Kind::Push,
-            IRect::new(450, 74, 471, 90),
-            Some(IRect::new(471, 74, 492, 90)),
-        ));
-        elements.push(Element::new(
-            id::NEXT,
-            IRect::new(423, 65, 444, 81),
-            Kind::Push,
-            IRect::new(450, 90, 471, 106),
-            Some(IRect::new(471, 90, 492, 106)),
-        ));
         let size = |i: u8| {
             let (sheet, n) = picture(i);
             pictures
@@ -243,7 +284,7 @@ impl Tray {
                 pos: (54, 0),
                 size: (449, 93),
                 sheet: 2,
-                elements,
+                elements: elements(false),
                 visible: true,
                 capture: None,
             },
@@ -256,6 +297,7 @@ impl Tray {
             saved_tool: None,
             slides: Vec::new(),
             slide_start: 0,
+            enhanced: false,
         };
         t.bar.select(id::POINTER);
         t.bar.select(id::TAB0);
@@ -285,6 +327,124 @@ impl Tray {
             .map_or(&[], Vec::as_slice)
     }
 
+    /// The parts shown in the slot area, in its coordinates: the current
+    /// page's, or the enhanced tray's whole folder.
+    #[must_use]
+    pub fn slots(&self) -> Vec<Slot> {
+        if self.enhanced {
+            folder_slots(&self.folders[self.folder]).collect()
+        } else {
+            self.page().to_vec()
+        }
+    }
+
+    /// Turns the port's enhanced tray on or off: its buttons, its size,
+    /// the current folder's first page.
+    pub fn set_enhanced(&mut self, on: bool) {
+        if on == self.enhanced {
+            return;
+        }
+        let (tool, tab) = (self.tool(), self.bar.selected(2));
+        self.enhanced = on;
+        self.bar.elements = elements(on);
+        self.bar.capture = None;
+        self.select_tool(tool);
+        if let Some(t) = tab {
+            self.bar.select(t);
+        }
+        self.pages[self.folder] = 0;
+        self.slides.clear();
+        self.update_arrows();
+        self.animate(self.slide_start);
+    }
+
+    /// The enhanced slot area's height for folder `f` (gray: none).
+    fn full_height(&self, shown: Shown) -> i32 {
+        match shown {
+            Shown::Page(f, _) => AREA_H * i32::try_from(self.folders[f].len()).unwrap_or(0),
+            Shown::Gray => 0,
+        }
+    }
+
+    /// The enhanced slot area at `now`: its height and the folder rolled
+    /// into it. A folder switch rolls the old folder up into the gray,
+    /// then the new one down out of it.
+    fn rolled(&self, now: u64) -> (i32, Shown) {
+        let elapsed = now.saturating_sub(self.slide_start);
+        let step = usize::try_from(elapsed / SLIDE_MS).unwrap_or(usize::MAX);
+        let current = Shown::Page(self.folder, 0);
+        let Some(&(from, to, up)) = self.slides.get(step) else {
+            return (self.full_height(current), current);
+        };
+        let ms = i32::try_from(elapsed % SLIDE_MS).unwrap_or(0);
+        let k = |h: i32| h * ms / i32::try_from(SLIDE_MS).unwrap_or(1);
+        if up {
+            let h = self.full_height(from);
+            (h - k(h), from)
+        } else {
+            (k(self.full_height(to)), to)
+        }
+    }
+
+    /// The tray's size at `now` (the enhanced tray's follows its slot
+    /// area, which shows at least one row).
+    pub fn animate(&mut self, now: u64) {
+        self.bar.size = if self.enhanced {
+            let (h, _) = self.rolled(now);
+            (ENHANCED_W, AREA.y0 + h.max(AREA_H) + 2)
+        } else {
+            (449, 93)
+        };
+    }
+
+    /// Whether `p` (worksheet coordinates) is on the tray: the enhanced
+    /// tray leaves out the corner under the tools.
+    #[must_use]
+    pub fn contains(&self, p: (i32, i32)) -> bool {
+        let q = (p.0 - self.bar.pos.0, p.1 - self.bar.pos.1);
+        self.bar.rect().contains(p.0, p.1) && !(self.enhanced && q.1 >= TOOLS_H && q.0 < LOWER_X)
+    }
+
+    /// The outline drawn while the tray is dragged, at `at`: 2-pixel
+    /// strips around its shape.
+    #[must_use]
+    pub fn outline(&self, at: (i32, i32)) -> Vec<IRect> {
+        let (w, h) = self.bar.size;
+        let strips = if self.enhanced && h > TOOLS_H {
+            vec![
+                IRect::new(0, 0, w, 2),
+                IRect::new(w - 2, 2, w, h),
+                IRect::new(0, 2, 2, TOOLS_H),
+                IRect::new(2, TOOLS_H - 2, LOWER_X + 2, TOOLS_H),
+                IRect::new(LOWER_X, TOOLS_H, LOWER_X + 2, h - 2),
+                IRect::new(LOWER_X, h - 2, w - 2, h),
+            ]
+        } else {
+            // The rectangle's (`0x430172`).
+            vec![
+                IRect::new(0, 0, w, 2),
+                IRect::new(0, h - 2, w, h),
+                IRect::new(0, 2, 2, h - 2),
+                IRect::new(w - 2, 2, w, h - 2),
+            ]
+        };
+        strips.into_iter().map(|r| r.offset(at.0, at.1)).collect()
+    }
+
+    /// The help line: the enhanced tray's ends at its narrower edge.
+    fn help_rect(&self) -> IRect {
+        if self.enhanced {
+            IRect::new(HELP.x0, HELP.y0, ENHANCED_W - 4, HELP.y1)
+        } else {
+            HELP
+        }
+    }
+
+    /// The slot area now (tray coordinates).
+    fn area(&self) -> IRect {
+        IRect::new(AREA.x0, AREA.y0, AREA.x1, self.bar.size.1 - 2)
+    }
+
     /// The arrows and the number (`0x4322e5`).
     fn update_arrows(&mut self) {
         let (page, n) = (self.pages[self.folder], self.folders[self.folder].len());
@@ -311,7 +471,7 @@ impl Tray {
         } else {
             from.saturating_sub(1)
         };
-        if to == from {
+        if to == from || self.enhanced {
             return;
         }
         self.pages[f] = to;
@@ -337,11 +497,11 @@ impl Tray {
     /// The part in the slot area at `p` (tray coordinates).
     #[must_use]
     pub fn slot_at(&self, p: (i32, i32)) -> Option<Slot> {
-        if !AREA.contains(p.0, p.1) {
+        if !self.area().contains(p.0, p.1) {
             return None;
         }
         let q = (p.0 - AREA.x0, p.1 - AREA.y0);
-        self.page().iter().copied().find(|s| s.rect.contains(q.0, q.1))
+        self.slots().into_iter().find(|s| s.rect.contains(q.0, q.1))
     }
 
     /// The help line's string for the pointer at `p` over the tray
@@ -349,16 +509,16 @@ impl Tray {
     #[must_use]
     pub fn hover_id(&self, p: (i32, i32)) -> Option<i32> {
         let elem = |q: (i32, i32)| {
-            if HELP.contains(q.0, q.1) {
+            if self.help_rect().contains(q.0, q.1) {
                 return Some(-1);
             }
             if let Some(i) = self.bar.element_at(q) {
                 return Some(self.bar.elements[i].id);
             }
-            if NUMBER_RECT.contains(q.0, q.1) {
+            if !self.enhanced && NUMBER_RECT.contains(q.0, q.1) {
                 return Some(-1);
             }
-            if AREA.contains(q.0, q.1) {
+            if self.area().contains(q.0, q.1) {
                 return Some(self.slot_at(q).map_or(0, |s| i32::from(s.index)));
             }
             None
@@ -453,7 +613,12 @@ impl Tray {
         let Some(page) = self.folders.get(f).and_then(|x| x.get(p)) else {
             return;
         };
-        for slot in page {
+        self.draw_slots(s, page.iter().copied(), assets, pictures);
+    }
+
+    /// Draws parts with their counts.
+    fn draw_slots(&self, s: &mut Surface, slots: impl Iterator<Item = Slot>, assets: &Assets, pictures: &Pictures) {
+        for slot in slots {
             let old = s.set_clip(slot.rect);
             let (sheet, n) = picture(slot.index);
             if let Some(img) = pictures.frame(assets, Module::Gadget, sheet, n) {
@@ -483,21 +648,100 @@ impl Tray {
         }
     }
 
+    /// The enhanced tray's face, put together from the original's: its
+    /// top (the move bar, the tools, the tabs) up to the slot area's
+    /// right edge, then the window's own right edge; below the tools the
+    /// slot area's sides, repeated down to its height, and the bottom.
+    fn draw_enhanced_face(&self, s: &mut Surface, img: &Image) {
+        let (x, y) = self.bar.pos;
+        let h = self.bar.size.1;
+        let bottom = h - 2;
+        // `src` of the face at `dx`, `dy` in the tray, and the window's
+        // edge beside it.
+        let mut piece = |src: IRect, dx: i32, dy: i32| s.blit_part(img, src, x + dx, y + dy);
+        let row = |x0: i32, x1: i32, r: i32| IRect::new(x0, r, x1, r + 1);
+        piece(IRect::new(0, 0, KEEP_W, AREA.y0), 0, 0);
+        piece(IRect::new(EDGE.x0, 0, EDGE.x1, AREA.y0), KEEP_W, 0);
+        piece(IRect::new(0, AREA.y0, LOWER_X, TOOLS_H), 0, AREA.y0);
+        if h <= TOOLS_H {
+            piece(IRect::new(LOWER_X, AREA.y0, KEEP_W, TOOLS_H), LOWER_X, AREA.y0);
+            piece(IRect::new(EDGE.x0, AREA.y0, EDGE.x1, TOOLS_H), KEEP_W, AREA.y0);
+            return;
+        }
+        let orig_bottom = TOOLS_H - 2;
+        for r in AREA.y0..bottom {
+            let src = if r < orig_bottom { r } else { SIDE_ROW };
+            if r < orig_bottom {
+                piece(row(LOWER_X, AREA.x0, r), LOWER_X, r);
+            } else {
+                // The window's left edge, then the slot area's.
+                piece(row(0, 3, SIDE_ROW), LOWER_X, r);
+                piece(row(LOWER_X + 3, AREA.x0, SIDE_ROW), LOWER_X + 3, r);
+            }
+            piece(row(AREA.x1, KEEP_W, src), AREA.x1, r);
+            piece(row(EDGE.x0, EDGE.x1, src), KEEP_W, r);
+        }
+        piece(row(0, 3, SIDE_ROW), LOWER_X, bottom);
+        piece(row(LOWER_X + 3, KEEP_W, orig_bottom), LOWER_X + 3, bottom);
+        piece(row(LOWER_X, KEEP_W, orig_bottom + 1), LOWER_X, bottom + 1);
+        piece(IRect::new(EDGE.x0, orig_bottom, EDGE.x1, TOOLS_H), KEEP_W, bottom);
+    }
+
+    /// The enhanced slot area: the folder rolled into it, anchored at its
+    /// bottom edge, over gray.
+    fn draw_folder(&self, s: &mut Surface, assets: &Assets, pictures: &Pictures, now: u64) {
+        let area = self.area();
+        let (h, shown) = self.rolled(now);
+        let h = h.min(area.height());
+        let full = self.full_height(shown);
+        let mut whole = Surface::new(350, u32::try_from(full.max(1)).unwrap_or(1));
+        whole.fill(whole.bounds(), 255);
+        if let Shown::Page(f, _) = shown {
+            self.draw_slots(&mut whole, folder_slots(&self.folders[f]), assets, pictures);
+        }
+        let mut a = Surface::new(350, u32::try_from(area.height()).unwrap_or(0));
+        a.fill(a.bounds(), 248);
+        for row in 0..h {
+            for col in 0..AREA_W {
+                a.pset(col, row, whole.get(col, full - h + row).unwrap_or(255));
+            }
+        }
+        let area = area.offset(self.bar.pos.0, self.bar.pos.1);
+        let old = s.clip();
+        s.set_clip(area.offset(s.origin.0, s.origin.1).intersect(old));
+        s.copy_from(&a, area.x0, area.y0);
+        s.set_clip(old);
+    }
+
     /// Draws the tray at its place in `s` (worksheet coordinates).
     pub fn draw(&self, s: &mut Surface, assets: &Assets, pictures: &Pictures, now: u64) {
-        self.bar.draw(s, assets, pictures);
+        let face = pictures.frame(assets, Module::Gadget, self.bar.sheet, 1);
         let (x, y) = self.bar.pos;
+        match &face {
+            Some(img) if self.enhanced => {
+                self.draw_enhanced_face(s, img);
+                for e in &self.bar.elements {
+                    s.blit_part(img, e.source(), x + e.rect.x0, y + e.rect.y0);
+                }
+            }
+            _ => self.bar.draw(s, assets, pictures),
+        }
         if let Some(font) = assets.font("Small Fonts", 12, false) {
+            let help = self.help_rect();
             let old = s.clip();
-            let r = HELP.offset(x, y).offset(s.origin.0, s.origin.1).intersect(old);
+            let r = help.offset(x, y).offset(s.origin.0, s.origin.1).intersect(old);
             s.set_clip(r);
-            s.text(font, x + HELP.x0, y + HELP.y0, &crate::text::encode(&self.help), 255);
+            s.text(font, x + help.x0, y + help.y0, &crate::text::encode(&self.help), 255);
             s.set_clip(old);
         }
-        if let Some(img) = pictures.frame(assets, Module::Gadget, self.bar.sheet, 1)
+        if self.enhanced {
+            self.draw_folder(s, assets, pictures, now);
+            return;
+        }
+        if let Some(img) = &face
             && let Some(&src) = DIGITS.get(self.pages[self.folder])
         {
-            s.blit_part(&img, src, x + NUMBER.0, y + NUMBER.1);
+            s.blit_part(img, src, x + NUMBER.0, y + NUMBER.1);
         }
         let mut a = Surface::new(350, 40);
         let area = AREA.offset(x, y);
@@ -606,6 +850,7 @@ mod tests {
             saved_tool: None,
             slides: Vec::new(),
             slide_start: 0,
+            enhanced: false,
         };
         assert!(t.take(5));
         assert_eq!(t.counts[5], -1);

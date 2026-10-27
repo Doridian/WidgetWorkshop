@@ -55,6 +55,8 @@ pub mod cmd {
     /// unused.
     pub const COPY_LINK: u16 = 0x9003;
     pub const PASTE: u16 = 0xe125;
+    /// The port's own (`super::super::settings`): Options ▸ Settings.
+    pub const SETTINGS: u16 = 0x9004;
 }
 
 /// The items `Menu_UpdateForRunState` (`0x414b7e`) greys while running.
@@ -194,6 +196,29 @@ impl Menu {
                 (cmd::COPY_LINK, "Copy Lin&k to Widget"),
             ],
         );
+    }
+
+    /// Adds the port's Settings item to the end of the Options menu (the
+    /// one with the backgrounds), after a separator.
+    pub fn add_settings(&mut self) {
+        let options = self.items.iter_mut().find_map(|p| match p {
+            MenuItem::Popup { items, .. }
+                if items
+                    .iter()
+                    .any(|i| matches!(i, MenuItem::Command { id, .. } if *id == cmd::PLAIN)) =>
+            {
+                Some(items)
+            }
+            _ => None,
+        });
+        if let Some(items) = options {
+            items.push(MenuItem::Separator);
+            items.push(MenuItem::Command {
+                id: cmd::SETTINGS,
+                text: "&Settings...".to_owned(),
+                flags: 0,
+            });
+        }
     }
 
     /// Adds `new` to the File menu after the first of `after` there.

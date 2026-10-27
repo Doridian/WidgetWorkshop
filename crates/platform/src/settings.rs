@@ -21,9 +21,10 @@
 //! system reports them. Unknown keys and lines that don't parse are
 //! skipped, missing ones keep their defaults.
 //!
-//! The enhancements' switches ([`EnhanceSettings`], `game::enhance`) are
-//! the player's, written by hand or by the game's list of them
-//! ([`EnhanceSettings::save`]):
+//! The enhancements' switches ([`EnhanceSettings`]) are the player's,
+//! written by hand or by the game's Settings window
+//! ([`EnhanceSettings::save`]), which has the one for all of them,
+//! `original`:
 //!
 //! ```text
 //! original=false
@@ -38,7 +39,8 @@
 //! ```
 //!
 //! Writing the window's state keeps every other line of the file, and
-//! writing the switches keeps every line but theirs.
+//! writing the switches keeps every line but theirs. A UI scale chosen in
+//! the game is written at once ([`save_value`]).
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -280,6 +282,42 @@ impl EnhanceSettings {
     }
 }
 
+/// `text` with `key=value`: the key's first line takes it where it is and
+/// its other lines go, or it's added at the end. Every other line stays.
+#[must_use]
+pub fn edit_value(text: &str, key: &str, value: &str) -> String {
+    let new = format!("{key}={value}");
+    let mut lines: Vec<&str> = Vec::new();
+    let mut done = false;
+    for line in text.lines() {
+        if line.split_once('=').is_none_or(|(k, _)| k.trim() != key) {
+            lines.push(line);
+        } else if !done {
+            lines.push(&new);
+            done = true;
+        }
+    }
+    if !done {
+        lines.push(&new);
+    }
+    lines.join("\n") + "\n"
+}
+
+/// Writes `key=value` into the file at `path` ([`edit_value`]), making its
+/// directory.
+///
+/// # Errors
+/// If the directory or the file can't be written.
+pub fn save_value(path: &Path, key: &str, value: &str) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        crate::fs::create_dir_all(dir)?;
+    }
+    let text = crate::fs::read_to_string(path).unwrap_or_default();
+    let temp = path.with_extension("ini.tmp");
+    crate::fs::write(&temp, edit_value(&text, key, value))?;
+    crate::fs::rename(&temp, path)
+}
+
 /// The value of the last `key=value` line for `key` in `text`, trimmed.
 #[must_use]
 pub fn value(text: &str, key: &str) -> Option<String> {
@@ -343,6 +381,9 @@ mod tests {
         assert_eq!(value(text, "language").as_deref(), Some("en"));
         assert_eq!(value(text, "fullscreen"), None);
         assert_eq!(load_value(Path::new("/nonexistent/settings.ini"), "language"), None);
+        let edited = edit_value("# x\nui_scale=2\nfullscreen=true\nui_scale=3\n", "ui_scale", "auto");
+        assert_eq!(edited, "# x\nui_scale=auto\nfullscreen=true\n");
+        assert_eq!(edit_value("a=1", "ui_scale", "1.5"), "a=1\nui_scale=1.5\n");
     }
 
     #[test]

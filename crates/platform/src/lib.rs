@@ -254,6 +254,15 @@ pub trait App {
     fn dropped(&mut self, _file: DroppedFile) {}
     /// The clipboard's text, as [`clipboard::request_text`] asked.
     fn pasted(&mut self, _text: String) {}
+    /// A UI scale the game asks for now (its settings), asked once each
+    /// frame: the window follows it at once and remembers it.
+    fn take_ui_scale(&mut self) -> Option<UiScale> {
+        None
+    }
+    /// The UI scale asked for and the one it gives now, which is smaller
+    /// while an automatic one doesn't fit; called before the first frame
+    /// and after every change.
+    fn ui_scale_changed(&mut self, _asked: UiScale, _scale: f64) {}
 }
 
 /// How the window opens; what isn't given comes from the settings file.
@@ -371,8 +380,8 @@ impl Shown {
 struct Runner<A> {
     app: A,
     title: String,
-    /// The window's size and fullscreen: the page has no window to size.
-    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    /// The window's size and fullscreen (the page has no window to
+    /// size), the UI scale and the settings file.
     options: WindowOptions,
     window: Option<(Arc<Window>, display::Display)>,
     last: Instant,
@@ -383,6 +392,8 @@ struct Runner<A> {
     /// The UI scale asked for, and the one it gave last.
     ui: UiScale,
     scale: f64,
+    /// What the game was last told of them.
+    told: Option<(UiScale, f64)>,
     modifiers: ModifiersState,
     /// The wheel's movement not yet handed on as whole notches.
     wheel: (f64, f64),
@@ -431,6 +442,26 @@ impl<A: App> Runner<A> {
             self.app.resize(desktop.0, desktop.1);
             window.request_redraw();
         }
+        if self.told != Some((self.ui, scale)) {
+            self.told = Some((self.ui, scale));
+            self.app.ui_scale_changed(self.ui, scale);
+        }
+    }
+
+    /// The game asks for UI scale `ui`: the window follows it, and the
+    /// settings file has it at once.
+    fn set_ui(&mut self, ui: UiScale) {
+        if ui == self.ui {
+            return;
+        }
+        self.ui = ui;
+        self.remembered.ui_scale = Some(ui);
+        if let Some(path) = &self.options.settings_file
+            && let Err(e) = settings::save_value(path, "ui_scale", &ui.to_string())
+        {
+            eprintln!("{}: {e}", path.display());
+        }
+        self.update_desktop();
     }
 
     /// Stops on `error`, which `run` returns natively and the page
@@ -527,6 +558,9 @@ impl<A: App> ApplicationHandler for Runner<A> {
         for t in clipboard::take_pasted() {
             self.app.pasted(t);
         }
+        if let Some(ui) = self.app.take_ui_scale() {
+            self.set_ui(ui);
+        }
         let now = Instant::now();
         if now >= self.last + FRAME {
             self.app.update(now - self.last);
@@ -553,6 +587,13 @@ impl<A: App> Runner<A> {
         if self.pending.is_some() {
             return;
         }
+        // The page's size is its own; only the UI scale is remembered.
+        let saved = self.options.settings_file.as_deref().map(WindowSettings::load);
+        self.ui = self
+            .options
+            .ui_scale
+            .or(saved.and_then(|s| s.ui_scale))
+            .unwrap_or_default();
         web::watch_drops();
         let canvas = web::canvas();
         let append = canvas.is_none();
@@ -737,6 +778,7 @@ pub fn run<A: App + 'static>(title: &str, options: WindowOptions, app: A) -> Res
         desktop: (0, 0),
         ui,
         scale: 1.0,
+        told: None,
         modifiers: ModifiersState::empty(),
         wheel: (0.0, 0.0),
         swallowed: Vec::new(),

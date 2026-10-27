@@ -75,6 +75,13 @@ Options: `--no-audio`, `--window-size=WxH`, `--fullscreen`, `--windowed`,
 every resource there in that layout and quits). On Linux the sound needs
 ALSA's headers to build (`libasound2-dev`).
 
+Options ▸ Settings, the port's own, changes the UI scale on the spot
+(Automatic, or 1× to 4× in quarters) and switches the port's
+enhancements of the original on or off, all of them at once
+(`original=true` in the settings file turns them off). So far the one
+enhancement is the parts tray: it shows a whole folder at once, its pages
+one under the other, without the page arrows.
+
 Widgets travel as links too ([docs/web.md](docs/web.md#widget-links)):
 File ▸ Copy Link to Widget puts one on the clipboard, which opens the
 widget in the browser build for anyone with the CD, and File ▸ Open
