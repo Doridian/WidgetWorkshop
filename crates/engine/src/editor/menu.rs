@@ -1,6 +1,6 @@
 //! The menu bar (`RT_MENU` 3) and the accelerators (`RT_ACCELERATOR` 2),
-//! drawn in Windows 95's style at the top of the frame, since the platform
-//! has no native menus (docs/editor-layout.md 5).
+//! drawn in the toolbars' style ([`super::ui`]) at the top of the frame,
+//! since the platform has no native menus (docs/editor-layout.md 5).
 
 use formats::dialog::{MF_CHECKED, MF_GRAYED, MenuItem, parse_menu};
 use formats::pe::{RT_ACCELERATOR, RT_MENU};
@@ -536,20 +536,22 @@ impl Menu {
 
     /// Draws the bar across `width` and the open popup.
     pub fn draw(&self, s: &mut Surface, assets: &Assets, width: i32) {
-        s.fill(IRect::new(0, 0, width, BAR_H), ui::FACE);
+        s.fill(IRect::new(0, 0, width, BAR_H - 1), ui::FACE);
+        s.fill(IRect::new(0, BAR_H - 1, width, BAR_H), ui::DARK);
         let Some(font) = ui::font(assets) else { return };
-        let ty = (BAR_H - i32::from(font.height)) / 2;
+        let ty = (BAR_H - 1 - i32::from(font.height)) / 2;
         for (i, r) in self.bar_rects(assets).into_iter().enumerate() {
             let sel = self.open == Some(i);
-            let off = i32::from(sel && self.dropped);
+            let mut c = ui::BLACK;
             if sel {
                 if self.dropped {
-                    ui::edge(s, r, ui::SHADOW, ui::LIGHT);
+                    s.fill(r, ui::BLUE);
+                    c = ui::WHITE;
                 } else {
                     ui::edge(s, r, ui::LIGHT, ui::SHADOW);
                 }
             }
-            ui::label(s, font, r.x0 + BAR_PAD + off, ty + off, self.title(i), ui::BLACK);
+            ui::label(s, font, r.x0 + BAR_PAD, ty, self.title(i), c);
         }
         let Some(open) = self.open.filter(|_| self.dropped) else {
             return;
@@ -568,7 +570,7 @@ impl Menu {
                     let enabled = self.item_enabled(it);
                     let hot = self.hot == Some(k);
                     if hot {
-                        s.fill(ir, ui::NAVY);
+                        s.fill(ir, ui::BLUE);
                     }
                     let (t, a) = text.split_once('\t').unwrap_or((text, ""));
                     let ty = ir.y0 + (ITEM_H - i32::from(font.height)) / 2;

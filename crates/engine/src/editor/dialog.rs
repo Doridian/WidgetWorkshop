@@ -1,9 +1,9 @@
 //! The gadgets' settings dialogs (`cDialog`, docs/editor-interaction.md 6)
 //! and the squeeze questions (Fit Work Area's dialog 10014, the save's
-//! Mac size check 10010), drawn from their
-//! `RT_DIALOG` templates in `WIDGET.EXE` in Windows 95's style: radio
-//! groups, check boxes, edit fields, drop-down lists, the gadget's
-//! picture and Doc's balloon (`cDialogDocItem`, docs/editor-layout.md
+//! Mac size check 10010), drawn from their `RT_DIALOG` templates in
+//! `WIDGET.EXE` in the toolbars' style ([`super::ui`]): radio groups,
+//! check boxes, edit fields, drop-down lists, the gadget's picture and
+//! Doc's balloon (`cDialogDocItem`, docs/editor-layout.md
 //! 7.4).
 //!
 //! The settings block maps onto the controls by kind and order
@@ -1119,7 +1119,7 @@ impl Dialog {
                 let y = lr.y0 + 1 + i32::try_from(k).unwrap_or(0) * ih;
                 let hot = *sel == Some(k);
                 if hot {
-                    s.fill(IRect::new(lr.x0 + 1, y, lr.x1 - 1, y + ih), ui::NAVY);
+                    s.fill(IRect::new(lr.x0 + 1, y, lr.x1 - 1, y + ih), ui::BLUE);
                 }
                 s.text(
                     font,
@@ -1264,13 +1264,13 @@ pub(super) fn keep_caption(to: (i32, i32), w: i32, area: IRect) -> (i32, i32) {
     )
 }
 
-/// A dialog's window: the raised frame, the caption with `title` and the
+/// A dialog's window: the frame, the caption with `title` and the
 /// close box (held down if `close_pressed`).
 pub(super) fn draw_window(s: &mut Surface, font: &formats::fnt::Font, w: IRect, title: &str, close_pressed: bool) {
     s.fill(w, ui::FACE);
     ui::raised(s, w);
     let cap = caption(w);
-    s.fill(cap, ui::NAVY);
+    ui::caption(s, cap, true);
     s.text(font, cap.x0 + 3, cap.y0 + 2, &crate::text::encode(title), ui::WHITE);
     let cb = close_box(w);
     ui::button(s, font, cb, "", close_pressed, false, true);
@@ -1333,7 +1333,7 @@ pub(super) fn check_mark(s: &mut Surface, x: i32, y: i32) {
     }
 }
 
-/// A Win95 radio button (12×12): grey/black sunken circle, white inside.
+/// A radio button (12×12): a round well, white inside.
 fn radio(s: &mut Surface, x: i32, y: i32, on: bool, pressed: bool) {
     const OUTER_TL: [&str; 12] = [
         "....gggg....",
@@ -1367,8 +1367,8 @@ fn radio(s: &mut Surface, x: i32, y: i32, on: bool, pressed: bool) {
         for (dx, (a, b)) in (0..).zip(o.bytes().zip(i.bytes())) {
             let c = match (a, b) {
                 (b'g', _) => Some(ui::SHADOW),
-                (b'w', _) => Some(ui::WHITE),
-                (_, b'b') => Some(ui::BLACK),
+                (b'w', _) => Some(ui::LIGHT),
+                (_, b'b') => Some(ui::DARK),
                 (_, b'l') => Some(ui::FACE),
                 (_, b'i') => Some(if pressed { ui::FACE } else { ui::WHITE }),
                 _ => None,

@@ -1,4 +1,4 @@
-//! Message boxes (`MessageBox`, `cAlert` `0x410b5b`) in Windows 95's look:
+//! Message boxes (`MessageBox`, `cAlert` `0x410b5b`) in the toolbars' look:
 //! a caption bar, the text, buttons. The file dialogs are
 //! [`super::file_dialog`].
 
@@ -103,7 +103,7 @@ impl Prompt {
         s.fill(r, ui::FACE);
         ui::raised(s, r);
         let cap = IRect::new(r.x0 + 3, r.y0 + 3, r.x1 - 3, r.y0 + 3 + CAPTION_H);
-        s.fill(cap, ui::NAVY);
+        ui::caption(s, cap, true);
         s.text(
             font,
             cap.x0 + 3,

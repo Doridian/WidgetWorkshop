@@ -981,7 +981,7 @@ impl FileDialog {
             let t = IRect::sized(c.x0 + ICON_W + 3, c.y0 + 1, it.w + 4, ROW_H - 2);
             let hot = self.sel == Some(i);
             if hot {
-                s.fill(t, if self.focus == Focus::List { ui::NAVY } else { ui::FACE });
+                s.fill(t, if self.focus == Focus::List { ui::BLUE } else { ui::FACE });
             }
             let color = if hot && self.focus == Focus::List {
                 ui::WHITE
@@ -1013,7 +1013,7 @@ impl FileDialog {
         let x = n.x0 + 4 - (tw - (n.width() - 10)).max(0);
         let ty = n.y0 + (n.height() - fh) / 2;
         if self.name_sel && self.focus == Focus::Name && !self.name.is_empty() {
-            s.fill(IRect::sized(x - 1, ty, tw + 2, fh), ui::NAVY);
+            s.fill(IRect::sized(x - 1, ty, tw + 2, fh), ui::BLUE);
             s.text(font, x, ty, &bytes, ui::WHITE);
         } else {
             s.text(font, x, ty, &bytes, ui::BLACK);
@@ -1079,7 +1079,7 @@ impl FileDialog {
                 }
                 let w = ui::width(font, &text);
                 if hot {
-                    s.fill(IRect::sized(x - 1, y + 1, w + 3, ROW_H - 2), ui::NAVY);
+                    s.fill(IRect::sized(x - 1, y + 1, w + 3, ROW_H - 2), ui::BLUE);
                 }
                 s.text(
                     font,
@@ -1132,7 +1132,7 @@ impl FileDialog {
         let b = self.bar_rect().offset(ox, oy);
         for y in b.y0..b.y1 {
             for x in b.x0..b.x1 {
-                s.pset(x, y, if (x + y) % 2 == 0 { ui::WHITE } else { ui::FACE });
+                s.pset(x, y, if (x + y) % 2 == 0 { ui::LIGHT } else { ui::FACE });
             }
         }
         let left = IRect::sized(b.x0, b.y0, SB, SB);

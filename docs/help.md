@@ -1,7 +1,7 @@
 # Help: `WIDGET.HLP` and the Help menu
 
 What the original does with on-line help, what the help file contains,
-and a plan for an in-game viewer the engine draws in the Win95 style it
+and a plan for an in-game viewer the engine draws in the toolbars' style it
 uses for the rest of the UI. The parser is `crates/formats/src/hlp.rs`
 (`formats::hlp::HelpFile`). The OS/2 Warp CD's help is an IPF book
 instead, `WIDGET.INF` (§5, `crates/formats/src/inf.rs`), which the same
@@ -172,8 +172,8 @@ totals about 13.5 KB, roughly 2,200 words, in about 120 paragraphs.
 ## 3. Plan for the in-game viewer
 
 The goal is to look like WinHelp 95 (`WINHLP32`) showing a WinHelp 3.1
-file without a `.CNT`, drawn by the engine with its Win95 chrome and the
-CD's bitmap fonts (`WIN31/SVGA/SSERIFE.FON`: MS Sans Serif 8, 10, 12, 14,
+file without a `.CNT`, drawn by the engine in the colours of the game's
+toolbars (`editor/ui.rs`) and with the CD's bitmap fonts (`WIN31/SVGA/SSERIFE.FON`: MS Sans Serif 8, 10, 12, 14,
 18, 24 pt; there's no Arial). Without them, as on the OS/2 CD, it uses the
 port's bundled fonts (`crates/engine/fonts`: Wine's MS Sans Serif and
 Small Fonts, and Widget Sans, rendered from Liberation Sans).

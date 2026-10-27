@@ -793,7 +793,7 @@ impl ScrollBar {
         let b = self.rect;
         for y in b.y0..b.y1 {
             for x in b.x0..b.x1 {
-                s.pset(x, y, if (x + y) % 2 == 0 { ui::WHITE } else { ui::FACE });
+                s.pset(x, y, if (x + y) % 2 == 0 { ui::LIGHT } else { ui::FACE });
             }
         }
         let (less, more) = if self.vertical {
@@ -1631,12 +1631,8 @@ impl Help {
             ui::raised(s, w);
         }
         // The caption: active or not.
-        let (bg, fg) = if self.active {
-            (ui::NAVY, ui::WHITE)
-        } else {
-            (ui::SHADOW, ui::FACE)
-        };
-        s.fill(r.caption, bg);
+        let fg = if self.active { ui::WHITE } else { ui::LIGHT };
+        ui::caption(s, r.caption, self.active);
         help_icon(s, r.caption.x0 + 1, r.caption.y0 + 1);
         let tx = r.caption.x0 + 20;
         let cap_clip = s.clip();
@@ -2053,12 +2049,12 @@ impl IndexDialog {
         let tab = IRect::new(page.x0, page.y0 - 20, page.x0 + tab_w, page.y0 + 1);
         s.fill(tab, ui::FACE);
         s.fill(IRect::new(page.x0, page.y0, page.x1, page.y1), ui::FACE);
-        ui::edge(s, page, ui::WHITE, ui::BLACK);
+        ui::edge(s, page, ui::LIGHT, ui::DARK);
         ui::edge(s, page.inset(1), ui::FACE, ui::SHADOW);
-        s.fill(IRect::new(tab.x0, tab.y0 + 2, tab.x0 + 1, page.y0 + 1), ui::WHITE);
-        s.fill(IRect::new(tab.x0 + 2, tab.y0, tab.x1 - 2, tab.y0 + 1), ui::WHITE);
-        s.pset(tab.x0 + 1, tab.y0 + 1, ui::WHITE);
-        s.fill(IRect::new(tab.x1 - 1, tab.y0 + 2, tab.x1, page.y0), ui::BLACK);
+        s.fill(IRect::new(tab.x0, tab.y0 + 2, tab.x0 + 1, page.y0 + 1), ui::LIGHT);
+        s.fill(IRect::new(tab.x0 + 2, tab.y0, tab.x1 - 2, tab.y0 + 1), ui::LIGHT);
+        s.pset(tab.x0 + 1, tab.y0 + 1, ui::LIGHT);
+        s.fill(IRect::new(tab.x1 - 1, tab.y0 + 2, tab.x1, page.y0), ui::DARK);
         s.fill(IRect::new(tab.x1 - 2, tab.y0 + 1, tab.x1 - 1, page.y0), ui::SHADOW);
         s.fill(IRect::new(tab.x0 + 1, page.y0, tab.x1 - 2, page.y0 + 2), ui::FACE);
         ui::label(s, font, tab.x0 + 8, tab.y0 + 4, "I&ndex", ui::BLACK);
@@ -2096,7 +2092,7 @@ impl IndexDialog {
             if hot {
                 s.fill(
                     IRect::new(r.x0, r.y0, r.x0 + 4 + ui::width(font, &self.words[i].0) + 2, r.y1),
-                    ui::NAVY,
+                    ui::BLUE,
                 );
             }
             let c = if hot { ui::WHITE } else { ui::BLACK };
