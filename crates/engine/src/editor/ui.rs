@@ -1,6 +1,8 @@
-//! Windows 95's look, for what the platform has no native version of: the
-//! menu bar, message boxes and the settings dialogs' controls. Drawn with
-//! the system colours of the 8-bit palette (the 20 static entries).
+//! The look of what the platform has no native version of: the menu bar,
+//! message boxes and the settings dialogs' controls. Drawn like the game's
+//! own toolbars (sheet 1, `WWGADGET` 1004) rather than like Windows: their
+//! darker grey face and bevels, near-black wells, and the recessed blue of
+//! their move bars for captions and selections.
 
 use formats::fnt::Font;
 
@@ -8,15 +10,19 @@ use crate::assets::Assets;
 use crate::gfx::{IRect, Surface};
 
 pub const BLACK: u8 = 0;
-/// `COLOR_3DFACE`, `COLOR_MENU`: RGB(192,192,192).
-pub const FACE: u8 = 7;
-/// `COLOR_3DSHADOW`, `COLOR_GRAYTEXT`: RGB(128,128,128).
-pub const SHADOW: u8 = 248;
-/// `COLOR_3DHILIGHT`: white.
-pub const LIGHT: u8 = 255;
+/// The toolbars' face: RGB(159,159,159).
+pub const FACE: u8 = 16;
+/// Their lit edge: RGB(207,207,207).
+pub const LIGHT: u8 = 13;
+/// Their shaded edge, and greyed text: RGB(115,115,115).
+pub const SHADOW: u8 = 34;
+/// The inner rim of their wells: RGB(23,23,23).
+pub const DARK: u8 = 26;
 pub const WHITE: u8 = 255;
-/// `COLOR_HIGHLIGHT`, `COLOR_ACTIVECAPTION`: RGB(0,0,128).
-pub const NAVY: u8 = 4;
+/// The move bars' blue, also the selection's: RGB(0,67,171).
+pub const BLUE: u8 = 17;
+/// The move bars' lit bottom and right edge: RGB(0,99,254).
+pub const BLUE_LIT: u8 = 40;
 
 /// The system font of dialogs and menus: MS Sans Serif 8 pt (13 px).
 #[must_use]
@@ -24,18 +30,28 @@ pub fn font(assets: &Assets) -> Option<&Font> {
     assets.font("MS Sans Serif", 13, false)
 }
 
-/// A raised edge (`DrawEdge(EDGE_RAISED)`): light grey and black outside,
-/// white and grey inside.
+/// A window's edge, as round a toolbar: lit on the top and left, shaded
+/// on the bottom and right, with a dark outline so it stands off the
+/// worksheet.
 pub fn raised(s: &mut Surface, r: IRect) {
-    edge(s, r, FACE, BLACK);
+    s.frame(r, DARK);
     edge(s, r.inset(1), LIGHT, SHADOW);
 }
 
-/// A sunken edge (`EDGE_SUNKEN`): grey and white outside, black and light
-/// grey inside.
+/// A well, as the toolbars' buttons sit in: grey and lit outside, near
+/// black and face inside.
 pub fn sunken(s: &mut Surface, r: IRect) {
     edge(s, r, SHADOW, LIGHT);
-    edge(s, r.inset(1), BLACK, FACE);
+    edge(s, r.inset(1), DARK, FACE);
+}
+
+/// A caption, drawn like a toolbar's move bar: a recessed blue strip,
+/// black on the top and left, bright blue on the bottom and right. An
+/// inactive one is grey.
+pub fn caption(s: &mut Surface, r: IRect, active: bool) {
+    let (fill, lit) = if active { (BLUE, BLUE_LIT) } else { (SHADOW, FACE) };
+    s.fill(r, fill);
+    edge(s, r, BLACK, lit);
 }
 
 /// A one-pixel edge: `tl` on the top and left, `br` on the bottom and right.
@@ -102,8 +118,8 @@ pub fn label(s: &mut Surface, font: &Font, x: i32, y: i32, text: &str, c: u8) ->
     w
 }
 
-/// A greyed label: white one pixel down and right, then grey (Win95's
-/// embossed disabled text).
+/// A greyed label: the lit edge's grey one pixel down and right, then the
+/// shaded one (embossed disabled text).
 pub fn grey_label(s: &mut Surface, font: &Font, x: i32, y: i32, text: &str) {
     label(s, font, x + 1, y + 1, text, LIGHT);
     label(s, font, x, y, text, SHADOW);
@@ -135,20 +151,21 @@ pub fn wrap(font: &Font, text: &str, w: i32) -> Vec<String> {
     lines
 }
 
-/// A push button: raised (or pressed) with its caption centred; a default
-/// button has a black frame around.
+/// A push button, like the toolbars' tiles: a near-black outline round a
+/// bevel, pressed in when held, with its caption centred; a default button
+/// has a blue ring inside its outline.
 pub fn button(s: &mut Surface, font: &Font, r: IRect, text: &str, pressed: bool, default: bool, enabled: bool) {
     s.fill(r, FACE);
-    let mut b = r;
+    s.frame(r, DARK);
+    let mut b = r.inset(1);
     if default {
-        s.frame(r, BLACK);
-        b = r.inset(1);
+        s.frame(b, BLUE);
+        b = b.inset(1);
     }
     if pressed {
-        s.frame(b, SHADOW);
+        edge(s, b, SHADOW, FACE);
     } else {
-        edge(s, b, LIGHT, BLACK);
-        edge(s, b.inset(1), FACE, SHADOW);
+        edge(s, b, LIGHT, SHADOW);
     }
     let (plain, _) = strip_mnemonic(text);
     let tw = width(font, &plain);

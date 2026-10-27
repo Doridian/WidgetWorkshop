@@ -1,7 +1,7 @@
 //! "Select a puzzle" (`cPuzzleDlg`, docs/puzzles.md 2.3): dialog 10000 of
 //! `WIDGET.EXE`, a list of the puzzles with `+` before the solved ones,
 //! Ok, Cancel and "Reset Completed Puzzles". Drawn from its `RT_DIALOG`
-//! template in Windows 95's style, like the settings dialogs
+//! template in the toolbars' style, like the settings dialogs
 //! ([`super::dialog`]).
 //!
 //! The original shows no description: a puzzle's instructions are text
@@ -396,7 +396,7 @@ impl PuzzleDialog {
             let r = IRect::new(items.x0, y, items.x1, y + self.item_h);
             let hot = self.sel == Some(i);
             if hot {
-                s.fill(r, ui::NAVY);
+                s.fill(r, ui::BLUE);
             }
             let c = if hot { ui::WHITE } else { ui::BLACK };
             s.text(font, r.x0 + 2, y, &crate::text::encode(&self.lines[i]), c);
@@ -417,7 +417,7 @@ impl PuzzleDialog {
         // The track: white and light grey, checkered.
         for y in b.y0..b.y1 {
             for x in b.x0..b.x1 {
-                s.pset(x, y, if (x + y) % 2 == 0 { ui::WHITE } else { ui::FACE });
+                s.pset(x, y, if (x + y) % 2 == 0 { ui::LIGHT } else { ui::FACE });
             }
         }
         let up = IRect::sized(b.x0, b.y0, SB, SB);
