@@ -244,6 +244,9 @@ enum Next {
     Exit,
     /// The file dropped onto the window.
     Dropped,
+    /// Settings ▸ Change CD...: the host picks another CD and starts
+    /// over.
+    ChangeCd,
 }
 
 /// The editor, drawn into an 8-bit surface.
@@ -338,6 +341,8 @@ pub struct Editor {
     /// yet.
     new_scale: Option<Scale>,
     new_enhanced: Option<bool>,
+    /// Change CD... was pressed, and the widget saved or let go.
+    change_cd: bool,
 }
 
 impl Editor {
@@ -414,6 +419,7 @@ impl Editor {
             ui_scale: (Scale::Auto, 1.0),
             new_scale: None,
             new_enhanced: None,
+            change_cd: false,
         };
         let limits = e.doc.tray_limits.clone();
         e.tray.apply_limits(&limits);
@@ -877,7 +883,7 @@ impl Editor {
     /// Open and Load Puzzle drop a puzzle's changes without asking; Exit
     /// asks (`0x417027`).
     fn confirm_save(&mut self, next: Next) {
-        if self.dirty && (next == Next::Exit || !self.puzzle.active) {
+        if self.dirty && (matches!(next, Next::Exit | Next::ChangeCd) || !self.puzzle.active) {
             let text = format!("Save changes to {}?", self.display_name());
             self.message(
                 &text,
@@ -900,6 +906,7 @@ impl Editor {
             Next::Import => self.import_ask(),
             Next::Exit => self.finished = true,
             Next::Dropped => self.open_dropped(),
+            Next::ChangeCd => self.change_cd = true,
         }
     }
 
@@ -1916,6 +1923,12 @@ impl Editor {
         self.new_enhanced.take()
     }
 
+    /// Whether the player asked for another CD (Settings ▸ Change CD...),
+    /// once, after "Save changes?": the host picks it and starts over.
+    pub fn take_change_cd(&mut self) -> bool {
+        std::mem::take(&mut self.change_cd)
+    }
+
     fn settings_outcome(&mut self, o: settings::Outcome) {
         match o {
             settings::Outcome::None => {}
@@ -1926,6 +1939,10 @@ impl Editor {
             settings::Outcome::Enhanced(on) => {
                 self.set_enhanced(on);
                 self.new_enhanced = Some(on);
+            }
+            settings::Outcome::ChangeCd => {
+                self.settings = None;
+                self.confirm_save(Next::ChangeCd);
             }
             settings::Outcome::Close => self.settings = None,
         }

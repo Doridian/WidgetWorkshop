@@ -1012,6 +1012,21 @@ fn the_settings_window_changes_the_scale_and_the_enhancements() {
     assert!(e.settings.is_none());
 }
 
+#[test]
+fn change_cd_asks_to_save_first() {
+    let Some(mut e) = editor() else { return };
+    e.command(cmd::SETTINGS);
+    e.key_down(u16::from(b'C'));
+    assert!(e.settings.is_none());
+    assert!(e.take_change_cd(), "nothing to save: straight on");
+    assert!(!e.take_change_cd());
+    e.dirty = true;
+    e.command(cmd::SETTINGS);
+    e.key_down(u16::from(b'C'));
+    assert!(e.prompt.is_some(), "Save changes?");
+    assert!(!e.take_change_cd());
+}
+
 /// Drags by the caption (or move bar) at `from` and holds it at `to`,
 /// still down.
 fn hold(e: &mut Editor, from: (i32, i32), to: (i32, i32)) {

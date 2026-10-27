@@ -3,6 +3,8 @@
 //! and the one switch for all of the port's enhancements of the original
 //! ([`super::tray`]'s whole-folder tray, windows dragged whole). The host keeps both
 //! ([`super::Editor::take_ui_scale`], [`super::Editor::take_enhanced`]).
+//! Change CD... asks the host for another CD image
+//! ([`super::Editor::take_change_cd`]).
 
 use crate::assets::Assets;
 use crate::gfx::{IRect, Surface};
@@ -25,6 +27,7 @@ const STEP: f64 = 0.25;
 const W: i32 = 252;
 const MARGIN: i32 = 10;
 const BUTTON_W: i32 = 75;
+const CHANGE_W: i32 = 95;
 const BUTTON_H: i32 = 23;
 const SMALL: i32 = 23;
 const CHECK_H: i32 = 16;
@@ -37,6 +40,8 @@ pub enum Outcome {
     None,
     Scale(Scale),
     Enhanced(bool),
+    /// Change CD...: the window closes and the host picks another.
+    ChangeCd,
     Close,
 }
 
@@ -49,15 +54,17 @@ enum Part {
     Smaller,
     Bigger,
     Enhanced,
+    ChangeCd,
 }
 
-const PARTS: [Part; 6] = [
+const PARTS: [Part; 7] = [
     Part::Close,
     Part::CloseBox,
     Part::Auto,
     Part::Smaller,
     Part::Bigger,
     Part::Enhanced,
+    Part::ChangeCd,
 ];
 
 /// The window.
@@ -137,7 +144,7 @@ impl SettingsBox {
     }
 
     /// The rectangles: the UI scale's group, its check box, −, the value,
-    /// +, the enhancements' check box, Close.
+    /// +, the enhancements' check box, Change CD..., Close.
     fn layout(&self, assets: &Assets) -> Layout {
         let lh = ui::font(assets).map_or(13, |f| i32::from(f.height));
         let (x, y) = self.client();
@@ -155,6 +162,7 @@ impl SettingsBox {
             BUTTON_W,
             BUTTON_H,
         );
+        let change_cd = IRect::sized(x, close.y0, CHANGE_W, BUTTON_H);
         Layout {
             group,
             auto,
@@ -162,6 +170,7 @@ impl SettingsBox {
             value,
             bigger,
             enhanced,
+            change_cd,
             close,
         }
     }
@@ -174,6 +183,7 @@ impl SettingsBox {
             Part::Smaller => l.smaller,
             Part::Bigger => l.bigger,
             Part::Enhanced => l.enhanced,
+            Part::ChangeCd => l.change_cd,
         }
     }
 
@@ -216,6 +226,7 @@ impl SettingsBox {
                 self.enhanced = !self.enhanced;
                 Outcome::Enhanced(self.enhanced)
             }
+            Part::ChangeCd => Outcome::ChangeCd,
         }
     }
 
@@ -251,12 +262,13 @@ impl SettingsBox {
     }
 
     /// A key: Enter and Esc close, A and E are the check boxes, − and +
-    /// the scale.
+    /// the scale, C Change CD....
     pub fn key(&mut self, vk: u16) -> Outcome {
         let part = match vk {
             0x0d | 0x1b => Part::Close,
             0x41 => Part::Auto,
             0x45 => Part::Enhanced,
+            0x43 => Part::ChangeCd,
             0x6d | 0xbd => Part::Smaller,
             0x6b | 0xbb => Part::Bigger,
             _ => return Outcome::None,
@@ -310,6 +322,15 @@ impl SettingsBox {
             ui::label(s, font, l.enhanced.x0 + 17, y, &line, ui::BLACK);
             y += i32::from(font.height);
         }
+        ui::button(
+            s,
+            font,
+            l.change_cd,
+            "&Change CD...",
+            pressed(Part::ChangeCd),
+            false,
+            true,
+        );
         ui::button(s, font, l.close, "Close", pressed(Part::Close), true, true);
     }
 }
@@ -321,6 +342,7 @@ struct Layout {
     value: IRect,
     bigger: IRect,
     enhanced: IRect,
+    change_cd: IRect,
     close: IRect,
 }
 
@@ -367,6 +389,7 @@ mod tests {
         assert_eq!(b.key(0x45), Outcome::Enhanced(false));
         b.scale = Scale::Fixed(1.0);
         assert_eq!(b.key(0x6d), Outcome::None, "− is greyed at 1×");
+        assert_eq!(b.key(0x43), Outcome::ChangeCd);
         assert_eq!(b.key(0x1b), Outcome::Close);
     }
 }

@@ -198,6 +198,32 @@ struct Workshop {
     theme: platform::theme::SystemTheme,
     /// Where the enhancements' switch is kept (`original=`).
     settings_file: Option<PathBuf>,
+    /// The command line's options to start over with on another CD
+    /// (Settings ▸ Change CD...), natively.
+    #[cfg(not(target_arch = "wasm32"))]
+    options: Vec<std::ffi::OsString>,
+    /// Started over on another CD: this one ends.
+    done: bool,
+}
+
+impl Workshop {
+    /// Settings ▸ Change CD..., the widget saved or let go: natively the
+    /// player picks another CD image and the game starts again on it; in
+    /// the browser the page reloads into its start form.
+    #[cfg_attr(target_arch = "wasm32", allow(clippy::unused_self))]
+    fn change_cd(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        web::change_cd();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(cd) = pick::choose() {
+            let exe = std::env::current_exe();
+            let started = exe.and_then(|exe| std::process::Command::new(exe).args(&self.options).arg(&cd).spawn());
+            match started {
+                Ok(_) => self.done = true,
+                Err(e) => pick::error_box(&format!("Widget Workshop didn't start again: {e}")),
+            }
+        }
+    }
 }
 
 impl App for Workshop {
@@ -211,6 +237,9 @@ impl App for Workshop {
             self.editor.open_link(&l);
         }
         self.editor.update(ms, sound::local_time());
+        if self.editor.take_change_cd() {
+            self.change_cd();
+        }
         if let Some(on) = self.editor.take_enhanced()
             && let Some(path) = &self.settings_file
             && let Err(e) = platform::settings::EnhanceSettings::save(path, Some(!on), &[], &[])
@@ -271,7 +300,7 @@ impl App for Workshop {
     }
 
     fn finished(&self) -> bool {
-        self.editor.finished()
+        self.done || self.editor.finished()
     }
 
     fn resize(&mut self, width: u32, height: u32) {
@@ -376,6 +405,22 @@ fn main() {
     }
 }
 
+/// The options of `args` to start again with on another CD: the window's
+/// are in the settings file by then.
+#[cfg(not(target_arch = "wasm32"))]
+fn restart_options(args: &Args) -> Vec<std::ffi::OsString> {
+    let mut o = Vec::new();
+    if let Some(d) = &args.overrides {
+        let mut a = std::ffi::OsString::from("--overrides=");
+        a.push(d);
+        o.push(a);
+    }
+    if args.no_audio {
+        o.push("--no-audio".into());
+    }
+    o
+}
+
 /// The browser build: `web` sets up the files and then [`start`]s.
 #[cfg(target_arch = "wasm32")]
 fn main() {
@@ -456,6 +501,9 @@ fn start(args: &Args, assets: Assets) -> Result<(), platform::Error> {
         palette,
         theme,
         settings_file,
+        #[cfg(not(target_arch = "wasm32"))]
+        options: restart_options(args),
+        done: false,
     };
     platform::run("Widget Workshop", args.window.clone(), app)
 }

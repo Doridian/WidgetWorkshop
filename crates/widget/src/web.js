@@ -93,11 +93,26 @@ function size(n) {
   return (n / (1024 * 1024)).toFixed(0) + " MB";
 }
 
-// Shows the start form (#setup) and resolves to the CD image once the
-// player presses Start with one, the pressing being the user gesture the
-// browser wants before the game's sound may start. A newly picked image
-// is stored first. `error` says why the last one didn't
-// do.
+// The session's mark that the next start shows the form even with an
+// image stored (Settings > Change CD...).
+const CHANGE = "widget-workshop-change-cd";
+
+// Reloads the page into the start form, the stored image kept: Start
+// without picking another goes on with it.
+export function changeCd() {
+  try {
+    sessionStorage.setItem(CHANGE, "1");
+  } catch (e) {
+    console.error("storage:", e);
+  }
+  location.reload();
+}
+
+// Resolves to the CD image: the stored one at once, else (or after
+// changeCd) once the player presses Start in the start form (#setup)
+// with one. A newly picked image is stored first. `error` says why the
+// last one didn't do. The game's sound starts with the first click or
+// key either way (platform::audio::resume).
 export async function chooseCd(error) {
   const $ = (id) => document.getElementById(id);
   let stored = null;
@@ -106,6 +121,14 @@ export async function chooseCd(error) {
   } catch (e) {
     console.error("storage:", e);
   }
+  let change = false;
+  try {
+    change = sessionStorage.getItem(CHANGE) !== null;
+    sessionStorage.removeItem(CHANGE);
+  } catch (e) {
+    console.error("storage:", e);
+  }
+  if (stored && !change && !error) return stored.blob;
   $("setup").hidden = false;
   $("setup-error").textContent = error || "";
   $("setup-error").hidden = !error;

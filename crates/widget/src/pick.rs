@@ -3,6 +3,7 @@
 //! as always; else the CD the player picked before; else the system's
 //! file dialog asks for the CD image. The choice is kept in the port's
 //! data directory (`platform::storage::data_dir`, `cd-path.txt`).
+//! Settings ▸ Change CD... asks again ([`choose`]).
 //! Natively only; the browser build's page asks for the image itself
 //! (`web`).
 
@@ -16,15 +17,24 @@ pub fn cd(default: &Path) -> Option<PathBuf> {
     if default.exists() {
         return Some(default.to_path_buf());
     }
-    let kept = platform::storage::data_dir().map(|d| d.join("cd-path.txt"));
-    let before = kept
-        .as_deref()
+    let before = kept()
         .and_then(|k| std::fs::read_to_string(k).ok())
         .map(|s| PathBuf::from(s.trim_end_matches(['\r', '\n'])))
         .filter(|p| p.exists());
     if before.is_some() {
         return before;
     }
+    choose()
+}
+
+/// Where the picked CD is kept.
+fn kept() -> Option<PathBuf> {
+    platform::storage::data_dir().map(|d| d.join("cd-path.txt"))
+}
+
+/// The CD image the player picks in the system's file dialog, kept for
+/// next time. `None` if the player cancels.
+pub fn choose() -> Option<PathBuf> {
     let picked = loop {
         let path = rfd::FileDialog::new()
             .set_title("Choose the Widget Workshop CD image")
@@ -36,7 +46,7 @@ pub fn cd(default: &Path) -> Option<PathBuf> {
             Err(e) => error_box(&format!("That isn't Widget Workshop's CD image ({e}). Choose another.")),
         }
     };
-    if let Some(kept) = kept {
+    if let Some(kept) = kept() {
         let saved = kept
             .parent()
             .map_or(Ok(()), std::fs::create_dir_all)
