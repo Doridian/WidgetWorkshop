@@ -116,7 +116,11 @@ pub(crate) fn with_devices<T>(
     use cpal::traits::{DeviceTrait, HostTrait};
 
     let host = cpal::default_host();
-    let default = if output { host.default_output_device() } else { host.default_input_device() };
+    let default = if output {
+        host.default_output_device()
+    } else {
+        host.default_input_device()
+    };
     let mut last = format!("no audio {} device", if output { "output" } else { "input" });
     if let Some(device) = &default {
         match open(device) {
@@ -124,7 +128,11 @@ pub(crate) fn with_devices<T>(
             Err(e) => last = e,
         }
     }
-    let devices = if output { host.output_devices() } else { host.input_devices() };
+    let devices = if output {
+        host.output_devices()
+    } else {
+        host.input_devices()
+    };
     let devices: Vec<cpal::Device> = devices.into_iter().flatten().collect();
     for name in SERVER_DEVICES {
         let Some(device) = devices.iter().find(|d| d.id().is_ok_and(|id| id.id() == name)) else {
