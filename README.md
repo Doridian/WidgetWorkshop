@@ -27,8 +27,8 @@ need your own copy of the game's CD.
 
 The port reads the **Mac/PC CD** (volume `WIDGETS`), as an `.iso` or as
 a folder with its files. The Internet
-Archive has it as a zip of the `.iso`:
-[widget-workshop-a-mad-scientists-laboratory-1996-maxis-mac-pc](https://archive.org/details/widget-workshop-a-mad-scientists-laboratory-1996-maxis-mac-pc).
+Archive has the `.iso`:
+[widget-workshop](https://archive.org/details/widget-workshop).
 
 It also reads the much smaller **OS/2 Warp CD** (`WW1_01A.ISO`, game folder
 `WIDGET/`): its modules are OS/2 executables whose dialogs, menu, strings
