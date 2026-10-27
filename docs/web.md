@@ -49,14 +49,17 @@ python3 -m http.server -d web 8000    # then open http://localhost:8000/
 
 On the first start the page asks for the game's CD image: the Mac/PC CD's
 `.iso` or the OS/2 CD's `WW1_01A.ISO`. **Start** reads
-the image into memory and opens the editor. On later starts the page
-shows the image it kept and **Start** goes straight on; picking another
-file replaces it. The page never fetches or sends game data: the image
+the image into memory and opens the editor. Later starts skip the form
+and open the editor on the image it kept. Options ▸ Settings ▸ **Change
+CD...** (after "Save changes?") reloads the page into the form, which
+shows the kept image: **Start** goes on with it, picking another file
+replaces it. If the kept image no longer reads or opens, the form asks
+for one again. The page never fetches or sends game data: the image
 comes from the player.
 
-The Start button is also the click the browser wants before a page may
-play sound: the `AudioContext` is resumed on it and on every later click
-or key press (`platform::audio::resume`).
+A browser won't let a page play sound before a click or key press: the
+`AudioContext` is resumed on every click or key press
+(`platform::audio::resume`), so the sound starts with the first.
 
 ## Storage
 

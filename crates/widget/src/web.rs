@@ -1,6 +1,7 @@
 //! The browser build's start (`docs/web.md`). The browser can't block,
 //! so this runs as a future on the page's event loop: it asks for the
-//! game's CD image (once; the browser keeps it), reads it into memory,
+//! game's CD image (once; the browser keeps it and later starts go
+//! straight on, until Settings ▸ Change CD...), reads it into memory,
 //! mounts the browser's storage where the widgets and the settings go
 //! (`platform::storage::WEB_STORAGE`), takes the options from the
 //! page's query, and then [`crate::start`]s the editor as natively. A
@@ -32,6 +33,9 @@ extern "C" {
     /// Forgets the stored CD image.
     #[wasm_bindgen(js_name = forgetCd)]
     fn forget_cd() -> js_sys::Promise;
+    /// Reloads the page into the start form, the stored image kept.
+    #[wasm_bindgen(js_name = changeCd)]
+    pub(crate) fn change_cd();
     /// `blob`'s bytes from `start` to `end`, a `Uint8Array`.
     #[wasm_bindgen(js_name = readBlob)]
     fn read_blob(blob: &web_sys::Blob, start: f64, end: f64) -> js_sys::Promise;
@@ -66,28 +70,35 @@ async fn wait(p: js_sys::Promise) -> Result<JsValue, String> {
     JsFuture::from(p).await.map_err(|e| js_error(&e))
 }
 
-/// The CD image the player picks (or picked before), read and opened;
-/// asks again while the image doesn't open or isn't the game's.
+/// `blob`'s bytes.
+async fn read(blob: &web_sys::Blob) -> Result<Vec<u8>, String> {
+    let size = blob.size();
+    // A file's size, whole and below 2^53.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let mut image = Vec::with_capacity(size as usize);
+    let mut at = 0.0;
+    while at < size {
+        let end = (at + CHUNK).min(size);
+        let chunk: js_sys::Uint8Array = wait(read_blob(blob, at, end)).await?.unchecked_into();
+        let start = image.len();
+        image.resize(start + chunk.length() as usize, 0);
+        chunk.copy_to(&mut image[start..]);
+        at = end;
+    }
+    Ok(image)
+}
+
+/// The CD image the player picks, or the one kept from before without
+/// asking, read and opened; asks again while the image doesn't read,
+/// open or isn't the game's.
 async fn cd_image() -> Result<Box<dyn engine::assets::Source>, String> {
     let mut error = String::new();
     loop {
         let blob: web_sys::Blob = wait(choose_cd(&error)).await?.dyn_into().map_err(|e| js_error(&e))?;
         platform::web::show_status("Reading the CD image…", false);
-        let size = blob.size();
-        // A file's size, whole and below 2^53.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let mut image = Vec::with_capacity(size as usize);
-        let mut at = 0.0;
-        while at < size {
-            let end = (at + CHUNK).min(size);
-            let chunk: js_sys::Uint8Array = wait(read_blob(&blob, at, end)).await?.unchecked_into();
-            let start = image.len();
-            image.resize(start + chunk.length() as usize, 0);
-            chunk.copy_to(&mut image[start..]);
-            at = end;
-        }
-        error = match CdImage::open(Box::new(image)) {
-            Ok(cd) => {
+        error = match read(&blob).await.map(|image| CdImage::open(Box::new(image))) {
+            Err(e) => format!("The CD image didn't read: {e}."),
+            Ok(Ok(cd)) => {
                 let volume = cd.volume.clone();
                 let cd = crate::cd::image(cd);
                 if crate::cd::has_game(cd.as_ref()) {
@@ -96,7 +107,7 @@ async fn cd_image() -> Result<Box<dyn engine::assets::Source>, String> {
                 }
                 "That CD image isn't Widget Workshop's: it has no WWGADGET.DLL.".to_owned()
             }
-            Err(e) => format!("That file doesn't open as a CD image: {e}."),
+            Ok(Err(e)) => format!("That file doesn't open as a CD image: {e}."),
         };
         platform::web::show_status("", false);
         wait(forget_cd()).await?;

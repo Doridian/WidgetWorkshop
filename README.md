@@ -82,6 +82,9 @@ enhancements of the original on or off, all of them at once
 enhancements: the parts tray shows a whole folder at once, its pages one
 under the other, without the page arrows; and the toolbars, dialogs and
 message boxes are dragged whole, not as an outline.
+Its **Change CD...** button, after "Save changes?", picks another CD
+image and starts the game again on it (in the browser, the page's start
+form comes back).
 
 Widgets travel as links too ([docs/web.md](docs/web.md#widget-links)):
 File ▸ Copy Link to Widget puts one on the clipboard, which opens the
