@@ -20,6 +20,7 @@ pub mod prompt;
 mod puzzle;
 pub mod puzzle_dialog;
 mod recorder;
+pub mod settings;
 mod standalone;
 pub mod toolbar;
 pub mod tray;
@@ -46,6 +47,7 @@ use self::file_dialog::FileDialog;
 use self::menu::{Menu, Outcome, cmd};
 use self::prompt::{Answer, Prompt};
 use self::puzzle_dialog::PuzzleDialog;
+use self::settings::{Scale, SettingsBox};
 use self::toolbar::{Bar, MOVE_BAR, id};
 use self::tray::{Tool, Tray};
 use self::worksheet::{Loose, Sel};
@@ -308,6 +310,14 @@ pub struct Editor {
     /// The clipboard, for widget links, and with it the File menu's link
     /// items ([`Editor::set_links`]).
     links: Option<links::Links>,
+    /// The port's Settings window.
+    settings: Option<SettingsBox>,
+    /// The UI scale asked for and the one it gives, as the host says.
+    ui_scale: (Scale, f64),
+    /// The player's choices in the Settings window the host hasn't taken
+    /// yet.
+    new_scale: Option<Scale>,
+    new_enhanced: Option<bool>,
 }
 
 impl Editor {
@@ -380,9 +390,14 @@ impl Editor {
             dropped: None,
             drop_name: None,
             links: None,
+            settings: None,
+            ui_scale: (Scale::Auto, 1.0),
+            new_scale: None,
+            new_enhanced: None,
         };
         let limits = e.doc.tray_limits.clone();
         e.tray.apply_limits(&limits);
+        e.menu.add_settings();
         e.update_menu();
         e
     }
@@ -404,6 +419,7 @@ impl Editor {
     /// The window's close button: Exit.
     pub fn quit(&mut self) {
         if self.prompt.is_some()
+            || self.settings.is_some()
             || self.dialog.is_some()
             || self.file_dialog.is_some()
             || self.puzzle_dialog.is_some()
@@ -470,11 +486,10 @@ impl Editor {
 
     /// The topmost visible toolbar at `p` (worksheet coordinates).
     fn bar_at(&self, p: (i32, i32)) -> Option<Which> {
-        self.bars
-            .iter()
-            .rev()
-            .copied()
-            .find(|&w| self.bar(w).visible && self.bar(w).rect().contains(p.0, p.1))
+        self.bars.iter().rev().copied().find(|&w| match w {
+            Which::Main => self.main_bar.visible && self.main_bar.rect().contains(p.0, p.1),
+            Which::Tray => self.tray.bar.visible && self.tray.contains(p),
+        })
     }
 
     fn raise_bar(&mut self, w: Which) {
@@ -487,6 +502,7 @@ impl Editor {
     /// toolbar, the menu or a box (`WindowFromPoint == view`).
     fn over_view(&self, p: (i32, i32)) -> bool {
         if self.prompt.is_some()
+            || self.settings.is_some()
             || self.dialog.is_some()
             || self.file_dialog.is_some()
             || self.puzzle_dialog.is_some()
@@ -585,6 +601,7 @@ impl Editor {
     pub fn update(&mut self, ms: u64, local_time: (u32, u32, u32)) {
         self.now += ms;
         self.env.local_time = local_time;
+        self.tray.animate(self.now);
         if let Some(h) = &mut self.help {
             h.tick(&self.assets, self.now);
         }
@@ -639,6 +656,7 @@ impl Editor {
     fn idle(&mut self) {
         if self.drag.is_some()
             || self.prompt.is_some()
+            || self.settings.is_some()
             || self.dialog.is_some()
             || self.file_dialog.is_some()
             || self.puzzle_dialog.is_some()
@@ -1067,6 +1085,11 @@ impl Editor {
             cmd::DOWNLOAD => self.ask_file(file_dialog::DOWNLOAD_WIDGET, "", Then::DownloadPath),
             cmd::COPY_LINK => self.copy_link(),
             cmd::PASTE => self.request_paste(),
+            cmd::SETTINGS => {
+                let (scale, current) = self.ui_scale;
+                let area = self.worksheet();
+                self.settings = Some(SettingsBox::new(&self.assets, area, scale, current, self.tray.enhanced));
+            }
             // Printing: nothing to print to.
             _ => {}
         }
@@ -1331,6 +1354,11 @@ impl Editor {
         }
         if let Some((pr, _)) = &mut self.prompt {
             pr.mouse_down(&self.assets, self.surface.bounds(), (x, y));
+            self.drag = Some(Drag::Modal);
+            return;
+        }
+        if let Some(b) = &mut self.settings {
+            b.mouse_down(&self.assets, (x, y));
             self.drag = Some(Drag::Modal);
             return;
         }
@@ -1714,7 +1742,7 @@ impl Editor {
             }
             Drag::Place { gadget, index, hot } => {
                 let p = self.clip(p);
-                if self.tray.bar.rect().contains(p.0, p.1) {
+                if self.tray.contains(p) {
                     self.tray.give_back(index);
                 } else {
                     self.ui_sound(snd::PLACED);
@@ -1749,6 +1777,9 @@ impl Editor {
                 Some(a) => self.answer(a, then, None),
                 None => self.prompt = Some((pr, then)),
             }
+        } else if let Some(b) = &mut self.settings {
+            let o = b.mouse_up(&self.assets, (x, y));
+            self.settings_outcome(o);
         } else if self.file_dialog.is_some() {
             self.file_mouse_up((x, y));
         } else if let Some(mut d) = self.dialog.take() {
@@ -1778,6 +1809,53 @@ impl Editor {
             d.wheel(dy);
         } else if let Some(d) = &mut self.puzzle_dialog {
             d.wheel(dy);
+        }
+    }
+
+    // ---- the port's settings -----------------------------------------
+
+    /// The host's UI scale: the one asked for and the one it gives now.
+    pub fn set_ui_scale(&mut self, asked: Scale, current: f64) {
+        self.ui_scale = (asked, current);
+        if let Some(b) = &mut self.settings {
+            b.scale = asked;
+            b.current = current;
+        }
+    }
+
+    /// The UI scale the player chose in the Settings window, once.
+    pub fn take_ui_scale(&mut self) -> Option<Scale> {
+        self.new_scale.take()
+    }
+
+    /// The port's enhancements on or off.
+    pub fn set_enhanced(&mut self, on: bool) {
+        self.tray.set_enhanced(on);
+    }
+
+    #[must_use]
+    pub fn enhanced(&self) -> bool {
+        self.tray.enhanced
+    }
+
+    /// The enhancements' switch as the player set it in the Settings
+    /// window, once.
+    pub fn take_enhanced(&mut self) -> Option<bool> {
+        self.new_enhanced.take()
+    }
+
+    fn settings_outcome(&mut self, o: settings::Outcome) {
+        match o {
+            settings::Outcome::None => {}
+            settings::Outcome::Scale(s) => {
+                self.ui_scale.0 = s;
+                self.new_scale = Some(s);
+            }
+            settings::Outcome::Enhanced(on) => {
+                self.set_enhanced(on);
+                self.new_enhanced = Some(on);
+            }
+            settings::Outcome::Close => self.settings = None,
         }
     }
 
@@ -1863,6 +1941,11 @@ impl Editor {
                 self.prompt = None;
                 self.answer(a, then, None);
             }
+            return;
+        }
+        if let Some(b) = &mut self.settings {
+            let o = b.key(vk);
+            self.settings_outcome(o);
             return;
         }
         if self.file_dialog.is_some() {
@@ -2122,11 +2205,23 @@ impl Editor {
         self.surface.origin = (view.x0, view.y0);
         self.draw_worksheet();
         let outline = match &self.drag {
-            Some(Drag::Bar { which, at, .. }) => {
-                let size = self.bar(*which).size;
-                Some(IRect::sized(at.0, at.1, size.0, size.1))
+            Some(Drag::Bar {
+                which: Which::Tray, at, ..
+            }) => self.tray.outline(*at),
+            Some(Drag::Bar {
+                which: Which::Main, at, ..
+            }) => {
+                // The outline (`0x430172`): four 2-pixel inverted strips.
+                let (w, h) = self.main_bar.size;
+                let r = IRect::sized(at.0, at.1, w, h);
+                vec![
+                    IRect::new(r.x0, r.y0, r.x1, r.y0 + 2),
+                    IRect::new(r.x0, r.y1 - 2, r.x1, r.y1),
+                    IRect::new(r.x0, r.y0 + 2, r.x0 + 2, r.y1 - 2),
+                    IRect::new(r.x1 - 2, r.y0 + 2, r.x1, r.y1 - 2),
+                ]
             }
-            _ => None,
+            _ => Vec::new(),
         };
         let s = &mut self.surface;
         // While a part is placed the toolbars hide, but their pictures stay
@@ -2151,12 +2246,9 @@ impl Editor {
                 gadget.behavior.draw(&gadget.core, &mut cx);
             }
             Some(Drag::Bar { .. }) => {
-                // The outline (`0x430172`): four 2-pixel inverted strips.
-                let r = outline.unwrap_or_default();
-                s.invert(IRect::new(r.x0, r.y0, r.x1, r.y0 + 2));
-                s.invert(IRect::new(r.x0, r.y1 - 2, r.x1, r.y1));
-                s.invert(IRect::new(r.x0, r.y0 + 2, r.x0 + 2, r.y1 - 2));
-                s.invert(IRect::new(r.x1 - 2, r.y0 + 2, r.x1, r.y1 - 2));
+                for r in outline {
+                    s.invert(r);
+                }
             }
             _ => {}
         }
@@ -2184,6 +2276,9 @@ impl Editor {
                 samples: &self.assets.samples,
             };
             d.draw(s, &self.assets, fs);
+        }
+        if let Some(b) = &self.settings {
+            b.draw(s, &self.assets);
         }
         if let Some((p, _)) = &self.prompt {
             p.draw(s, &self.assets, frame);

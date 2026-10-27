@@ -110,7 +110,10 @@ pub const FONT_DIR: &str = "WIN31/SVGA";
 /// Small Fonts (LGPL 2.1 or later, the same metrics as Windows'), and
 /// "Widget Sans" (`tools/make-sans-font.py`, Liberation Sans under the SIL
 /// OFL 1.1) for the gadgets' "Helvetica". crates/engine/fonts/README.md.
-const BUNDLED_FON: [&[u8]; 2] = [include_bytes!("../fonts/SSERIFE.FON"), include_bytes!("../fonts/SMALLE.FON")];
+const BUNDLED_FON: [&[u8]; 2] = [
+    include_bytes!("../fonts/SSERIFE.FON"),
+    include_bytes!("../fonts/SMALLE.FON"),
+];
 const BUNDLED_FNT: [&[u8]; 3] = [
     include_bytes!("../fonts/WSANS16.FNT"),
     include_bytes!("../fonts/WSANS16B.FNT"),
@@ -131,11 +134,9 @@ pub fn bundled_fonts() -> Vec<fnt::Font> {
 /// The first of [`GAME_DIRS`] on `cd` that holds `WWGADGET.DLL`.
 #[must_use]
 pub fn game_dir(cd: &dyn Source) -> Option<&'static str> {
-    GAME_DIRS.into_iter().find(|d| {
-        cd.list(d)
-            .iter()
-            .any(|n| n.eq_ignore_ascii_case(Module::Gadget.file()))
-    })
+    GAME_DIRS
+        .into_iter()
+        .find(|d| cd.list(d).iter().any(|n| n.eq_ignore_ascii_case(Module::Gadget.file())))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -469,7 +470,12 @@ mod tests {
             fonts: bundled_fonts(),
             ..Assets::default()
         };
-        for (face, height) in [("MS Sans Serif", 13), ("MS Sans Serif", 16), ("Small Fonts", 11), ("Widget Sans", 24)] {
+        for (face, height) in [
+            ("MS Sans Serif", 13),
+            ("MS Sans Serif", 16),
+            ("Small Fonts", 11),
+            ("Widget Sans", 24),
+        ] {
             let f = a.font(face, height, false).unwrap();
             assert_eq!((f.face.as_str(), f.height), (face, height));
         }

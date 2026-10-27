@@ -51,6 +51,7 @@ impl Editor {
     /// Whether a box is up or a drag going on, which a drop waits for.
     pub(super) fn busy(&self) -> bool {
         self.prompt.is_some()
+            || self.settings.is_some()
             || self.dialog.is_some()
             || self.file_dialog.is_some()
             || self.puzzle_dialog.is_some()
