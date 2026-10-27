@@ -1,7 +1,7 @@
 //! The port's own Settings window (Options ▸ Settings...), in the look of
 //! the original's dialogs: the UI scale, which the window follows at once,
 //! and the one switch for all of the port's enhancements of the original
-//! ([`super::tray`]'s whole-folder tray). The host keeps both
+//! ([`super::tray`]'s whole-folder tray, windows dragged whole). The host keeps both
 //! ([`super::Editor::take_ui_scale`], [`super::Editor::take_enhanced`]).
 
 use crate::assets::Assets;
@@ -29,7 +29,7 @@ const BUTTON_H: i32 = 23;
 const SMALL: i32 = 23;
 const CHECK_H: i32 = 16;
 /// The enhancements' note under their switch.
-const NOTE: &str = "The parts tray shows a whole folder at once.";
+const NOTE: &str = "The parts tray shows a whole folder at once; windows drag whole.";
 
 /// What an input did.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -217,6 +217,16 @@ impl SettingsBox {
                 Outcome::Enhanced(self.enhanced)
             }
         }
+    }
+
+    /// The window in frame coordinates.
+    pub(super) fn window(&self) -> IRect {
+        self.window
+    }
+
+    /// The window moved by its caption, its corner to `to`.
+    pub(super) fn move_to(&mut self, to: (i32, i32)) {
+        self.window = self.window.offset(to.0 - self.window.x0, to.1 - self.window.y0);
     }
 
     /// Whether `p` (frame coordinates) is on the window.

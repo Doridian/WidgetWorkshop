@@ -161,7 +161,8 @@ enum Drag {
     },
     /// The Move tool pans the widget (`0x426313`).
     Pan { last: (i32, i32) },
-    /// A toolbar dragged by its move bar; the outline's place.
+    /// A toolbar dragged by its move bar; the outline's place. With the
+    /// enhancements on, the toolbar itself follows.
     Bar {
         which: Which,
         grab: (i32, i32),
@@ -179,8 +180,27 @@ enum Drag {
     Menu,
     /// The mouse went down on a box or dialog.
     Modal,
+    /// A box or dialog moved by its caption, grabbed `grab` from its
+    /// corner (frame coordinates); the outline's place, `size` big. With
+    /// the enhancements on, the window itself follows.
+    Window {
+        grab: (i32, i32),
+        at: (i32, i32),
+        size: (i32, i32),
+    },
     /// The mouse went down on the help window.
     Help,
+}
+
+/// The outline of a window dragged to `r` (`0x430172`): four 2-pixel
+/// inverted strips.
+fn outline(r: IRect) -> Vec<IRect> {
+    vec![
+        IRect::new(r.x0, r.y0, r.x1, r.y0 + 2),
+        IRect::new(r.x0, r.y1 - 2, r.x1, r.y1),
+        IRect::new(r.x0, r.y0 + 2, r.x0 + 2, r.y1 - 2),
+        IRect::new(r.x1 - 2, r.y0 + 2, r.x1, r.y1 - 2),
+    ]
 }
 
 /// What follows a message box's answer.
@@ -1283,11 +1303,20 @@ impl Editor {
             }
             Drag::Bar { which, grab, .. } => {
                 let p = self.clip(p);
-                Drag::Bar {
-                    which,
-                    grab,
-                    at: (p.0 - grab.0, p.1 - grab.1),
+                let at = (p.0 - grab.0, p.1 - grab.1);
+                if self.tray.enhanced {
+                    self.bar_mut(which).pos = at;
                 }
+                Drag::Bar { which, grab, at }
+            }
+            Drag::Window { grab, size, .. } => {
+                // The boxes and dialogs are in frame coordinates.
+                let to = (p.0 - grab.0, p.1 + menu::BAR_H - grab.1);
+                let at = dialog::keep_caption(to, size.0, self.surface.bounds());
+                if self.tray.enhanced {
+                    self.move_modal(at);
+                }
+                Drag::Window { grab, at, size }
             }
             Drag::Place { mut gadget, index, hot } => {
                 let p = self.clip(p);
@@ -1350,6 +1379,14 @@ impl Editor {
         });
         self.last_click = if dbl { None } else { Some((self.now, (x, y))) };
         if self.drag.is_some() {
+            return;
+        }
+        if let Some(w) = self.modal_grab((x, y)) {
+            self.drag = Some(Drag::Window {
+                grab: (x - w.x0, y - w.y0),
+                at: (w.x0, w.y0),
+                size: (w.width(), w.height()),
+            });
             return;
         }
         if let Some((pr, _)) = &mut self.prompt {
@@ -1759,6 +1796,7 @@ impl Editor {
                 }
             }
             Drag::Modal => self.modal_up(x, y),
+            Drag::Window { at, .. } => self.move_modal(at),
             Drag::Help => {
                 let area = self.worksheet();
                 if let Some(h) = &mut self.help
@@ -1771,6 +1809,40 @@ impl Editor {
     }
 
     /// The mouse went up after going down on a box or dialog.
+    /// The window of the box or dialog on top if `p` (frame coordinates)
+    /// is on its caption, to move it by.
+    fn modal_grab(&self, p: (i32, i32)) -> Option<IRect> {
+        if let Some((pr, _)) = &self.prompt {
+            let w = pr.window(&self.assets, self.surface.bounds());
+            return dialog::caption(w).contains(p.0, p.1).then_some(w);
+        }
+        let w = if let Some(b) = &self.settings {
+            b.window()
+        } else if let Some((d, _)) = &self.file_dialog {
+            d.window()
+        } else if let Some(d) = &self.dialog {
+            d.window()
+        } else {
+            self.puzzle_dialog.as_ref()?.window()
+        };
+        dialog::on_caption(w, p).then_some(w)
+    }
+
+    /// The box or dialog on top moved, its corner to `to`.
+    fn move_modal(&mut self, to: (i32, i32)) {
+        if let Some((pr, _)) = &mut self.prompt {
+            pr.move_to(to);
+        } else if let Some(b) = &mut self.settings {
+            b.move_to(to);
+        } else if let Some((d, _)) = &mut self.file_dialog {
+            d.move_to(to);
+        } else if let Some(d) = &mut self.dialog {
+            d.move_to(to);
+        } else if let Some(d) = &mut self.puzzle_dialog {
+            d.move_to(to);
+        }
+    }
+
     fn modal_up(&mut self, x: i32, y: i32) {
         if let Some((mut pr, then)) = self.prompt.take() {
             match pr.mouse_up(&self.assets, self.surface.bounds(), (x, y)) {
@@ -2139,7 +2211,9 @@ impl Editor {
                 Drag::NewWire { .. } | Drag::WireEnd { .. } => Pointer::Game(2),
                 Drag::Pan { .. } => Pointer::Game(4),
                 Drag::Place { .. } => Pointer::Game(6),
-                Drag::Bar { .. } | Drag::Press(_) | Drag::Menu | Drag::Modal | Drag::Help => Pointer::Arrow,
+                Drag::Bar { .. } | Drag::Press(_) | Drag::Menu | Drag::Modal | Drag::Window { .. } | Drag::Help => {
+                    Pointer::Arrow
+                }
             };
         }
         if let Some(h) = &self.help
@@ -2204,23 +2278,13 @@ impl Editor {
         self.surface.set_clip(view);
         self.surface.origin = (view.x0, view.y0);
         self.draw_worksheet();
-        let outline = match &self.drag {
+        let bar_outline = match &self.drag {
             Some(Drag::Bar {
                 which: Which::Tray, at, ..
             }) => self.tray.outline(*at),
             Some(Drag::Bar {
                 which: Which::Main, at, ..
-            }) => {
-                // The outline (`0x430172`): four 2-pixel inverted strips.
-                let (w, h) = self.main_bar.size;
-                let r = IRect::sized(at.0, at.1, w, h);
-                vec![
-                    IRect::new(r.x0, r.y0, r.x1, r.y0 + 2),
-                    IRect::new(r.x0, r.y1 - 2, r.x1, r.y1),
-                    IRect::new(r.x0, r.y0 + 2, r.x0 + 2, r.y1 - 2),
-                    IRect::new(r.x1 - 2, r.y0 + 2, r.x1, r.y1 - 2),
-                ]
-            }
+            }) => outline(IRect::sized(at.0, at.1, self.main_bar.size.0, self.main_bar.size.1)),
             _ => Vec::new(),
         };
         let s = &mut self.surface;
@@ -2245,8 +2309,8 @@ impl Editor {
                 };
                 gadget.behavior.draw(&gadget.core, &mut cx);
             }
-            Some(Drag::Bar { .. }) => {
-                for r in outline {
+            Some(Drag::Bar { .. }) if !self.tray.enhanced => {
+                for r in bar_outline {
                     s.invert(r);
                 }
             }
@@ -2282,6 +2346,13 @@ impl Editor {
         }
         if let Some((p, _)) = &self.prompt {
             p.draw(s, &self.assets, frame);
+        }
+        if let Some(Drag::Window { at, size, .. }) = &self.drag
+            && !self.tray.enhanced
+        {
+            for r in outline(IRect::sized(at.0, at.1, size.0, size.1)) {
+                s.invert(r);
+            }
         }
     }
 

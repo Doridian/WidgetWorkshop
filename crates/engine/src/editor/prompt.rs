@@ -43,6 +43,8 @@ pub struct Prompt {
     pub buttons: Vec<Answer>,
     /// The button the mouse holds down.
     pressed: Option<usize>,
+    /// The corner it was moved to by its caption; else it's centred.
+    at: Option<(i32, i32)>,
 }
 
 impl Prompt {
@@ -53,6 +55,7 @@ impl Prompt {
             text: text.to_owned(),
             buttons: buttons.to_vec(),
             pressed: None,
+            at: None,
         }
     }
 
@@ -71,12 +74,10 @@ impl Prompt {
         let text_h = lh * i32::try_from(lines.len()).unwrap_or(0);
         let h = CAPTION_H + 3 + MARGIN + text_h + 8 + BUTTON_H + MARGIN + 3;
         let w = w + 6;
-        let r = IRect::sized(
-            area.x0 + (area.width() - w) / 2,
-            area.y0 + (area.height() - h) / 2,
-            w,
-            h,
-        );
+        let (x, y) = self
+            .at
+            .unwrap_or((area.x0 + (area.width() - w) / 2, area.y0 + (area.height() - h) / 2));
+        let r = IRect::sized(x, y, w, h);
         let by = r.y1 - 3 - MARGIN - BUTTON_H;
         let bx = r.x0 + (r.width() - bw) / 2;
         let buttons = (0..nb)
@@ -85,7 +86,17 @@ impl Prompt {
         (r, lines, buttons)
     }
 
-    /// Draws the box centred in `area`.
+    /// The box in `area`'s coordinates.
+    pub(super) fn window(&self, assets: &Assets, area: IRect) -> IRect {
+        self.layout(assets, area).0
+    }
+
+    /// The box moved by its caption, its corner to `to`.
+    pub(super) fn move_to(&mut self, to: (i32, i32)) {
+        self.at = Some(to);
+    }
+
+    /// Draws the box centred in `area`, or where it was moved to.
     pub fn draw(&self, s: &mut Surface, assets: &Assets, area: IRect) {
         let Some(font) = ui::font(assets) else { return };
         let (r, lines, buttons) = self.layout(assets, area);
