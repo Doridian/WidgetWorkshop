@@ -17,7 +17,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "wasm
 # The file dialog that asks for the CD when it isn't given (`pick`):
 # natively only, the browser's page asks for it itself.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rfd = "0.17"
+rfd = "0.18"
 
 # The browser build (docs/web.md): the page's storage and its query.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
