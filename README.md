@@ -45,7 +45,8 @@ Mac/PC CD's own fonts (`WIN31/SVGA`) are there, they win.
 Every push builds the port as one file per platform
 (`.github/workflows/build.yml`); a `v*` tag publishes them on its release:
 
-- `widget-workshop-linux-x86_64.AppImage`, `widget-workshop-linux-arm64.AppImage`
+- `widget-workshop-x86_64.AppImage`, `widget-workshop-aarch64.AppImage` (built on
+  Ubuntu 22.04: glibc 2.35 or newer)
 - `widget-workshop-windows-x86_64.exe` (the C runtime linked in)
 - `widget-workshop-macos.dmg`: `Widget Workshop.app`, for Apple silicon and
   Intel (signed ad hoc only: the first start needs a right click, Open)
