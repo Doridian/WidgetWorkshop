@@ -41,7 +41,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # (keyed by the runner image too: a target/ built on another Ubuntu
+      # release doesn't load)
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.runner }}
 
       - name: Install tools
         run: |
