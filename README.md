@@ -57,8 +57,10 @@ CD image with the system's file dialog and keeps its path in its data
 directory (`cd-path.txt` in `~/.local/share/widget-workshop`,
 `%APPDATA%\Widget Workshop`, `~/Library/Application Support/Widget Workshop`);
 it doesn't ask again while the file is there. On Linux the dialog is the
-desktop's (xdg-desktop-portal, else zenity). The icon is the port's own
-(`tools/make-icon.py`).
+desktop's (xdg-desktop-portal, else zenity); with neither (a minimal
+system), a window of the port's own asks for the CD image to be dropped on
+it, as Settings ▸ Change CD... does then in the game's window. The icon is
+the port's own (`tools/make-icon.py`).
 
 ## Running
 
