@@ -1,6 +1,6 @@
 name: build
 
-# The port for Linux (x86-64, arm64), Windows (x86-64), macOS (universal)
+# The port for Linux (x86-64, aarch64), Windows (x86-64), macOS (universal)
 # and the browser, on every push and pull request, each one file: an
 # AppImage, an .exe, the app in a .dmg. None carries game data: the
 # player gives the port the CD image at run time, natively from a file
@@ -20,18 +20,19 @@ permissions:
 
 jobs:
   linux:
-    # The AppImages are built on the oldest Ubuntu the runners have: they
-    # run where the system's glibc is as new as the build's or newer.
     strategy:
       fail-fast: false
       matrix:
+        # The oldest Ubuntu LTS still in standard support, on purpose: the
+        # AppImage uses the host's glibc, which has to be at least as new
+        # as the one it was built against (the AppImage catalog tests on
+        # that release). Not the newest runner, then; move on only when
+        # this one leaves standard support. The arch as AppImage spells it.
         include:
-          - runner: ubuntu-24.04
+          - runner: ubuntu-22.04
             arch: x86_64
-            appimage_arch: x86_64
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-            appimage_arch: aarch64
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
     runs-on: ${{ matrix.runner }}
     env:
       APPIMAGE_EXTRACT_AND_RUN: 1
@@ -40,7 +41,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      # (keyed by the runner image too: a target/ built on another Ubuntu
+      # release doesn't load)
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.runner }}
 
       - name: Install tools
         run: |
@@ -56,8 +61,8 @@ jobs:
       - name: Package (AppImage)
         timeout-minutes: 10
         run: |
-          out=widget-workshop-linux-${{ matrix.arch }}.AppImage
-          curl -sSLfo linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${{ matrix.appimage_arch }}.AppImage
+          out=widget-workshop-${{ matrix.arch }}.AppImage
+          curl -sSLfo linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${{ matrix.arch }}.AppImage
           chmod +x linuxdeploy
           doc=AppDir/usr/share/doc/widget-workshop
           mkdir -p $doc
@@ -72,8 +77,8 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: widget-workshop-linux-${{ matrix.arch }}
-          path: widget-workshop-linux-${{ matrix.arch }}.AppImage
+          name: widget-workshop-${{ matrix.arch }}.AppImage
+          path: widget-workshop-${{ matrix.arch }}.AppImage
 
   windows:
     runs-on: windows-latest
