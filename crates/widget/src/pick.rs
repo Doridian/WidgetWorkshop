@@ -108,18 +108,22 @@ pub fn has_dialog() -> bool {
     target_os = "openbsd"
 ))]
 fn portal() -> bool {
-    use zbus::blocking::connection::Builder;
-    let conn = Builder::session()
-        .map(|b| b.method_timeout(std::time::Duration::from_secs(10)))
-        .and_then(Builder::build);
-    conn.is_ok_and(|c| {
-        c.call_method(
+    zbus::block_on(async {
+        let Ok(conn) = zbus::connection::Builder::session()
+            .method_timeout(std::time::Duration::from_secs(10))
+            .build()
+            .await
+        else {
+            return false;
+        };
+        conn.call_method(
             Some("org.freedesktop.portal.Desktop"),
             "/org/freedesktop/portal/desktop",
             Some("org.freedesktop.DBus.Properties"),
             "Get",
             &("org.freedesktop.portal.FileChooser", "version"),
         )
+        .await
         .is_ok()
     })
 }
