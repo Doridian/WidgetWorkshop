@@ -16,7 +16,8 @@
 //! pointer is the system's, in the shape the frame asks for ([`Cursor`]).
 //! [`theme`] tells whether the system is in dark mode. A file dropped
 //! onto the window goes to [`App::dropped`], text read from the
-//! [`clipboard`] to [`App::pasted`].
+//! [`clipboard`] to [`App::pasted`]. [`run`] may run more than once,
+//! one window after another (natively).
 
 //!
 //! In the browser (`wasm32`, `docs/web.md`) the window is the page's
@@ -45,7 +46,7 @@ pub mod theme;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use web_time::{Duration, Instant};
@@ -252,6 +253,12 @@ pub trait App {
     fn resize(&mut self, width: u32, height: u32);
     /// A file was dropped onto the window (a port extension).
     fn dropped(&mut self, _file: DroppedFile) {}
+    /// A file or folder dropped onto the window natively, before it's
+    /// read for [`App::dropped`]: whether the app took it as it is (a CD
+    /// image, too big to read whole).
+    fn dropped_path(&mut self, _path: &Path) -> bool {
+        false
+    }
     /// The clipboard's text, as [`clipboard::request_text`] asked.
     fn pasted(&mut self, _text: String) {}
     /// A UI scale the game asks for now (its settings), asked once each
@@ -731,6 +738,7 @@ impl<A: App> Runner<A> {
                     self.key(code, event.state == ElementState::Pressed, event.repeat);
                 }
             }
+            WindowEvent::DroppedFile(path) if self.app.dropped_path(&path) => {}
             WindowEvent::DroppedFile(path) => match std::fs::read(&path) {
                 Ok(data) => self.app.dropped(DroppedFile {
                     name: path
@@ -759,13 +767,19 @@ impl<A: App> Runner<A> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    /// The event loop, kept for the next [`run`]: winit makes only one.
+    static EVENT_LOOP: std::cell::RefCell<Option<EventLoop<()>>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Opens a window as `options` say and runs `app` until it finishes or
 /// the event loop ends, then remembers the window in the settings file.
+/// Natively it can run again, with another window, after it returns.
 ///
 /// # Errors
 /// If no window or GPU device can be set up.
 pub fn run<A: App + 'static>(title: &str, options: WindowOptions, app: A) -> Result<(), Error> {
-    let event_loop = EventLoop::new().map_err(|e| Error::Window(e.to_string()))?;
     let ui = options.ui_scale.unwrap_or_default();
     let runner = Runner {
         app,
@@ -796,18 +810,25 @@ pub fn run<A: App + 'static>(title: &str, options: WindowOptions, app: A) -> Res
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
+        let event_loop = EventLoop::new().map_err(|e| Error::Window(e.to_string()))?;
         event_loop.spawn_app(runner);
         Ok(())
     }
     #[cfg(not(target_arch = "wasm32"))]
-    run_native(event_loop, runner)
+    run_native(runner)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn run_native<A: App>(event_loop: EventLoop<()>, mut runner: Runner<A>) -> Result<(), Error> {
-    event_loop
-        .run_app(&mut runner)
-        .map_err(|e| Error::Window(e.to_string()))?;
+fn run_native<A: App>(mut runner: Runner<A>) -> Result<(), Error> {
+    use winit::platform::run_on_demand::EventLoopExtRunOnDemand;
+
+    let mut event_loop = match EVENT_LOOP.take() {
+        Some(l) => l,
+        None => EventLoop::new().map_err(|e| Error::Window(e.to_string()))?,
+    };
+    let ran = event_loop.run_app_on_demand(&mut runner);
+    EVENT_LOOP.set(Some(event_loop));
+    ran.map_err(|e| Error::Window(e.to_string()))?;
     if let Some(path) = &runner.options.settings_file
         && runner.remembered.size.is_some()
         && let Err(e) = runner.remembered.save(path)

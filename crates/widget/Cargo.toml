@@ -19,6 +19,11 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "wasm
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rfd = "0.18"
 
+# Whether rfd has a dialog to show (`pick::has_dialog`): the portal's
+# FileChooser on the session bus.
+[target.'cfg(any(target_os = "linux", target_os = "freebsd", target_os = "dragonfly", target_os = "netbsd", target_os = "openbsd"))'.dependencies]
+zbus = "5"
+
 # The browser build (docs/web.md): the page's storage and its query.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"

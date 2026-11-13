@@ -13,7 +13,8 @@
 //! files replace or add to the CD's resources (`engine::assets`);
 //! `--export` writes every resource there in that layout and quits.
 //! Started without a CD and with none here (a packaged app started from
-//! its icon), it asks for one (`pick`). In the browser (`web`,
+//! its icon), it asks for one (`pick`): in the file dialog, else in a
+//! window the CD image is dropped on. In the browser (`web`,
 //! `docs/web.md`) the page asks for the CD image and its query is the
 //! command line.
 
@@ -204,30 +205,59 @@ struct Workshop {
     options: Vec<std::ffi::OsString>,
     /// Started over on another CD: this one ends.
     done: bool,
+    /// Change CD... where there's no file dialog: the window asks for the
+    /// CD image to be dropped on it instead of showing the game.
+    #[cfg(not(target_arch = "wasm32"))]
+    asking: Option<pick::DropScreen>,
 }
 
 impl Workshop {
     /// Settings ▸ Change CD..., the widget saved or let go: natively the
-    /// player picks another CD image and the game starts again on it; in
-    /// the browser the page reloads into its start form.
+    /// player picks another CD image (or drops it on the window where
+    /// there's no file dialog, `pick`) and the game starts again on it;
+    /// in the browser the page reloads into its start form.
     #[cfg_attr(target_arch = "wasm32", allow(clippy::unused_self))]
     fn change_cd(&mut self) {
         #[cfg(target_arch = "wasm32")]
         web::change_cd();
         #[cfg(not(target_arch = "wasm32"))]
-        if let Some(cd) = pick::choose() {
-            let exe = std::env::current_exe();
-            let started = exe.and_then(|exe| std::process::Command::new(exe).args(&self.options).arg(&cd).spawn());
-            match started {
-                Ok(_) => self.done = true,
-                Err(e) => pick::error_box(&format!("Widget Workshop didn't start again: {e}")),
+        if !pick::has_dialog() {
+            let s = &self.editor.surface;
+            let mut screen = pick::DropScreen::new(true, self.theme.dark());
+            screen.resize(
+                u32::try_from(s.width).unwrap_or(0),
+                u32::try_from(s.height).unwrap_or(0),
+            );
+            self.asking = Some(screen);
+        } else if let Some(cd) = pick::choose()
+            && let Err(e) = self.restart(&cd)
+        {
+            pick::error_box(&e);
+        }
+    }
+
+    /// The game started again on `cd`, this one ending; why not if it
+    /// didn't.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn restart(&mut self, cd: &std::path::Path) -> Result<(), String> {
+        let exe = std::env::current_exe();
+        let started = exe.and_then(|exe| std::process::Command::new(exe).args(&self.options).arg(cd).spawn());
+        match started {
+            Ok(_) => {
+                self.done = true;
+                Ok(())
             }
+            Err(e) => Err(format!("Widget Workshop didn't start again: {e}")),
         }
     }
 }
 
 impl App for Workshop {
     fn update(&mut self, elapsed: Duration) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.asking.is_some() {
+            return;
+        }
         let ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
         if let Some(dark) = self.theme.changed() {
             self.editor.set_system_dark(dark);
@@ -252,6 +282,19 @@ impl App for Workshop {
     }
 
     fn input(&mut self, input: Input) {
+        // Asking for a CD: Esc goes back to the game, closing quits it.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.asking.is_some() {
+            match input {
+                Input::KeyUp(0x1b) => self.asking = None,
+                Input::Close => {
+                    self.asking = None;
+                    self.editor.quit();
+                }
+                _ => {}
+            }
+            return;
+        }
         let button = |b| match b {
             Button::Right => Some(editor::Button::Right),
             Button::Left => Some(editor::Button::Left),
@@ -277,6 +320,10 @@ impl App for Workshop {
     }
 
     fn frame(&self) -> Frame<'_> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(screen) = &self.asking {
+            return screen.frame();
+        }
         let s = &self.editor.surface;
         Frame {
             width: u32::try_from(s.width).unwrap_or(0),
@@ -307,6 +354,10 @@ impl App for Workshop {
         let (w, h) = (width.max(platform::MIN_DESKTOP.0), height.max(platform::MIN_DESKTOP.1));
         self.editor.resize(w, h);
         self.editor.draw();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(screen) = &mut self.asking {
+            screen.resize(w, h);
+        }
     }
 
     fn dropped(&mut self, file: platform::DroppedFile) {
@@ -315,6 +366,24 @@ impl App for Workshop {
             path: file.path.map(|p| p.display().to_string()),
             data: file.data,
         });
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn dropped_path(&mut self, path: &std::path::Path) -> bool {
+        let Some(screen) = &mut self.asking else {
+            return false;
+        };
+        if screen.take(path) {
+            match self.restart(path) {
+                Ok(()) => self.asking = None,
+                Err(e) => {
+                    if let Some(screen) = &mut self.asking {
+                        screen.set_error(e);
+                    }
+                }
+            }
+        }
+        true
     }
 
     fn pasted(&mut self, text: String) {
@@ -375,9 +444,10 @@ fn main() {
         Some(p) => p,
         // Started without a CD, and there's none here: the one picked
         // before, or the player picks it (`pick`).
-        None if args.overrides.is_none() && args.export.is_none() => pick::cd(&default_cd()).unwrap_or_else(|| {
-            fail("no CD: start it with the game's CD image or folder as its argument, or pick it when it asks")
-        }),
+        None if args.overrides.is_none() && args.export.is_none() => pick::cd(&default_cd(), &args.window)
+            .unwrap_or_else(|| {
+                fail("no CD: start it with the game's CD image or folder as its argument, or pick it when it asks")
+            }),
         None => default_cd(),
     };
     let cd = match cd::open(&cd_path) {
@@ -504,6 +574,8 @@ fn start(args: &Args, assets: Assets) -> Result<(), platform::Error> {
         #[cfg(not(target_arch = "wasm32"))]
         options: restart_options(args),
         done: false,
+        #[cfg(not(target_arch = "wasm32"))]
+        asking: None,
     };
     platform::run("Widget Workshop", args.window.clone(), app)
 }
